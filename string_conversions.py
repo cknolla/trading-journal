@@ -3,6 +3,7 @@ Convenient methods to transform strings.
 """
 
 import re
+from datetime import datetime
 from enum import IntEnum
 
 
@@ -135,3 +136,17 @@ def convert_case(string: str, source_case: Case, target_case: Case) -> str:
         }
     }
     return dispatch[source_case][target_case](string)
+
+
+def dt_str(dt_object: datetime, format_='%Y-%m-%dT%H:%M:%S') -> str:
+    """
+    Converts python datetime object into datetime string
+    """
+    return dt_object.strftime(format_)
+
+
+def str_dt(date_string: str, format_='%Y-%m-%dT%H:%M:%S') -> datetime:
+    """
+    Converts an datetime string into a datetime object
+    """
+    return datetime.strptime(date_string, format_)
