@@ -147,16 +147,16 @@ class Account:
 
     @property
     def profit(self):
-        return sum(trade.profit for trade in self.trades.values())
+        return round(sum(trade.profit for trade in self.trades.values()), 2)
 
     @property
     def win_percent(self):
         wins = [True for trade in self.trades.values() if trade.is_win]
-        return len(wins) / len(self.trades.values()) * 100
+        return round(len(wins) / len(self.trades.values()) * 100, 2)
 
     @property
     def average_profit(self):
-        return self.profit / len(self.trades.values())
+        return round(self.profit / len(self.trades.values()), 2)
 
     @property
     def average_duration(self):
@@ -209,6 +209,7 @@ class Strategy:
         self.name = 'Unknown Strategy'
         self.max_profit = float('nan')
         self.max_loss = float('nan')
+        self.collateral = 0.0
 
         if not options:
             self.name = 'Close Position'
@@ -218,6 +219,7 @@ class Strategy:
         options.sort(key=lambda option: option.strike)
         options.sort(key=lambda option: option.is_call)
         self._get_profit_loss(options)
+        self._get_collateral(options)
         if len(options) == 1:
             if options[0].is_long:
                 if options[0].is_call:
@@ -292,14 +294,23 @@ class Strategy:
             self.max_loss = min_profit_loss
 
     def _get_collateral(self, sorted_options: List['Option']):
-        total_collateral = 0.0
-        # TODO
+        puts_collateral = 0.0
+        calls_collateral = 0.0
+        for option in sorted_options:
+            if option.is_call:
+                calls_collateral += option.get_collateral() if option.is_long else -option.get_collateral()
+            else:
+                puts_collateral += option.get_collateral() if option.is_long else -option.get_collateral()
+        self.collateral = max([abs(calls_collateral), abs(puts_collateral)])
 
     def __repr__(self):
         stakes = ''
-        if self.max_profit > 0:
-            stakes = f' with max profit of ${self.max_profit} and max loss of ${self.max_loss}'
-        return f'<Strategy {self.name}{stakes}'
+        if self.max_profit > 0.0:
+            stakes = f' with max profit of ${self.max_profit} and max loss of ${abs(self.max_loss)}'
+        collateral = ''
+        if self.collateral > 0.0:
+            collateral = f' requiring a collateral of ${self.collateral}'
+        return f'<Strategy "{self.name}"{stakes}{collateral}'
 
 
 class Trade:
@@ -314,7 +325,7 @@ class Trade:
         strategies = [
             f'{strategy[0]} @ {strategy[1]}' for strategy in self.strategies
         ]
-        return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}\nStrategies: {strategies}\nProfit: ${round(self.profit, 2)}\nWin: {self.is_win}>'
+        return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}\nStrategies: {strategies}\nProfit: ${round(self.profit, 2)}\nWin: {self.is_win}\nReturn on Collateral: {self.return_on_collateral_percent}%>'
 
     @property
     def options(self) -> List['Option']:
@@ -338,13 +349,27 @@ class Trade:
         total_profit = 0.0
         for option in self.options:
             total_profit += -option.price if option.is_long else option.price
-        return total_profit * 100
+        return round(total_profit * 100, 2)
 
     @property
     def is_win(self) -> bool:
         if self.profit >= 0:
             return True
         return False
+
+    @property
+    def return_on_collateral_percent(self) -> float:
+        if not self.is_closed:
+            raise ValueError('Cannot get profit of unclosed trade')
+        collaterals = []
+        for index, strategy in enumerate(self.strategies):
+            try:
+                close_time = self.strategies[index + 1][1]
+            except IndexError:
+                break
+            collaterals.append(self.strategies[index][0].collateral * ((close_time - self.strategies[index][1]) / self.duration))
+        average_collateral = sum(collaterals) / len(collaterals)
+        return round((self.profit / average_collateral) * 100, 2)
 
     @property
     def duration(self) -> timedelta:
@@ -403,8 +428,8 @@ for trade_event_data in events_data:
 
 
 print(f'{len(account.trades)=}')
-print(f'{round(account.profit, 2)=}')
-print(f'{round(account.win_percent, 2)=}')
+print(f'{account.profit=}')
+print(f'{account.win_percent=}')
 print(f'{round(account.average_profit, 2)=}')
 print(f'{str(account.average_duration)=}')
 print(f'{account.trades.values()=}')
