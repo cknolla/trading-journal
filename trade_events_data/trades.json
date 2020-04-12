@@ -1,0 +1,72 @@
+[
+  {
+    "options": [
+      {
+        "strike": 262.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 10.49
+      },
+      {
+        "strike": 255.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 7.91
+      }
+    ],
+    "ticker": "SPY",
+    "expirationDate": "2020-04-03",
+    "time": "2020-03-26T15:59:00"
+  },
+  {
+    "options": [
+      {
+        "strike": 5.5,
+        "isCall": true,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.37
+      }
+    ],
+    "ticker": "USO",
+    "expirationDate": "2020-04-09",
+    "time": "2020-04-02T11:10:00"
+  },
+  {
+    "options": [
+      {
+        "strike": 5.5,
+        "isCall": true,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.04
+      }
+    ],
+    "ticker": "USO",
+    "expirationDate": "2020-04-09",
+    "time": "2020-04-09T12:13:00"
+  },
+  {
+    "options": [
+      {
+        "strike": 255.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 11.85
+      },
+      {
+        "strike": 262.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 15.4
+      }
+    ],
+    "ticker": "SPY",
+    "expirationDate": "2020-04-03",
+    "time": "2020-03-27T09:32:00"
+  }
+]

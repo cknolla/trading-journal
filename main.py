@@ -204,12 +204,14 @@ class Option:
 class Strategy:
     def __init__(
             self,
-            options: List['Option']
+            options: List['Option'],
+            start_time: datetime,
     ):
         self.name = 'Unknown Strategy'
         self.max_profit = float('nan')
         self.max_loss = float('nan')
         self.collateral = 0.0
+        self.start_time = start_time
 
         if not options:
             self.name = 'Close Position'
@@ -303,10 +305,14 @@ class Strategy:
                 puts_collateral += option.get_collateral() if option.is_long else -option.get_collateral()
         self.collateral = max([abs(calls_collateral), abs(puts_collateral)])
 
+    @property
+    def max_return_on_collateral_percent(self):
+        return round(self.max_profit / self.collateral * 100, 2)
+
     def __repr__(self):
         stakes = ''
         if self.max_profit > 0.0:
-            stakes = f' with max profit of ${self.max_profit} and max loss of ${abs(self.max_loss)}'
+            stakes = f' with max profit of ${self.max_profit} and max loss of ${abs(self.max_loss)} and max return on collateral of {self.max_return_on_collateral_percent}%'
         collateral = ''
         if self.collateral > 0.0:
             collateral = f' requiring a collateral of ${self.collateral}'
@@ -315,15 +321,15 @@ class Strategy:
 
 class Trade:
     def __init__(self, ticker: str, expiration_date: date):
-        self.events = []
-        self.strategies = []
-        self.ticker = ticker
-        self.expiration_date = expiration_date
+        self.events: List['TradeEvent'] = []
+        self.strategies: List['Strategy'] = []
+        self.ticker: str = ticker
+        self.expiration_date: date = expiration_date
 
     # TODO
     def __repr__(self):
         strategies = [
-            f'{strategy[0]} @ {strategy[1]}' for strategy in self.strategies
+            f'{strategy} @ {strategy.start_time}' for strategy in self.strategies
         ]
         return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}\nStrategies: {strategies}\nProfit: ${round(self.profit, 2)}\nWin: {self.is_win}\nReturn on Collateral: {self.return_on_collateral_percent}%>'
 
@@ -364,10 +370,10 @@ class Trade:
         collaterals = []
         for index, strategy in enumerate(self.strategies):
             try:
-                close_time = self.strategies[index + 1][1]
+                close_time = self.strategies[index + 1].start_time
             except IndexError:
                 break
-            collaterals.append(self.strategies[index][0].collateral * ((close_time - self.strategies[index][1]) / self.duration))
+            collaterals.append(self.strategies[index].collateral * ((close_time - self.strategies[index].start_time) / self.duration))
         average_collateral = sum(collaterals) / len(collaterals)
         return round((self.profit / average_collateral) * 100, 2)
 
@@ -386,7 +392,7 @@ class Trade:
         self.strategies = []
         for event in self.events:
             options.extend(event.options)
-            self.strategies.append((Strategy(get_open_options(options)), event.time))
+            self.strategies.append(Strategy(get_open_options(options), event.time))
 
 
 class TradeEvent:
@@ -400,21 +406,24 @@ class TradeEvent:
         self.time = str_dt(time)
         self.ticker = ticker.upper()
         self.expiration_date = str_dt(expiration_date, '%Y-%m-%d').date()
-        self.options = [
-            Option(
-                ticker=self.ticker,
-                expiration_date=self.expiration_date,
-                **{
-                    convert_case(key, Case.CAMEL, Case.SNAKE): value
-                    for key, value in option_data.items()
-                }
-            ) for option_data in options
-        ]
+        self.options = []
+        for option_data in options:
+            for count in range(option_data['quantity']):
+                self.options.append(
+                    Option(
+                        ticker=self.ticker,
+                        expiration_date=self.expiration_date,
+                        **{
+                            convert_case(key, Case.CAMEL, Case.SNAKE): value
+                            for key, value in option_data.items()
+                        }
+                    )
+                )
 
 
 account = Account()
 
-with open(os.path.join('data', 'trade_events.json')) as data_file:
+with open(os.path.join('trade_events_data', 'trades.json')) as data_file:
     events_data = json.load(data_file)
 
 for trade_event_data in events_data:
