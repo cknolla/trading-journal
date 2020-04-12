@@ -7,7 +7,34 @@ from typing import List
 from string_conversions import Case, convert_case, str_dt
 
 
+def get_open_options(options: List['Option']) -> List['Option']:
+    inventory = {
+        'call': {},
+        'put': {}
+    }
+    for option in options:
+        option_type = 'call' if option.is_call else 'put'
+        if inventory[option_type].get(option.strike) is None:
+            inventory[option_type][option.strike] = []
+        counterpart = None
+        for same_strike_option in inventory[option_type][option.strike]:
+            if option.is_long != same_strike_option.is_long:
+                counterpart = same_strike_option
+                break
+        if counterpart is not None:
+            inventory[option_type][option.strike].remove(counterpart)
+        else:
+            inventory[option_type][option.strike].append(option)
+    open_options = []
+    for strikes in inventory.values():
+        for strike_options in strikes.values():
+            open_options.extend(strike_options)
+    return open_options
+
+
 def get_strategy(options: List['Option']):
+    if not options:
+        return 'Close Position'
     options.sort(key=lambda option: option.strike)
     options.sort(key=lambda option: option.is_call)
     if len(options) == 1:
@@ -65,7 +92,7 @@ class Account:
     def execute_trade_event(self, trade_event: 'TradeEvent'):
         trade = self.trades.get((trade_event.ticker, trade_event.expiration_date))
         if trade is None:
-            trade = Trade(trade_event.expiration_date)
+            trade = Trade(trade_event.ticker, trade_event.expiration_date)
             self.trades[(trade_event.ticker, trade_event.expiration_date)] = trade
         trade.add_event(trade_event)
 
@@ -114,13 +141,18 @@ class Option:
 
 
 class Trade:
-    def __init__(self, expiration_date: date):
+    def __init__(self, ticker: str, expiration_date: date):
         self.events = []
         self.strategies = []
+        self.ticker = ticker
         self.expiration_date = expiration_date
 
+    # TODO
     def __repr__(self):
-
+        strategies = [
+            f'{strategy[0]} @ {strategy[1]}' for strategy in self.strategies
+        ]
+        return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}\nStrategies: {strategies}\nProfit: ${round(self.profit, 2)}\nWin: {self.is_win}>'
 
     @property
     def options(self) -> List['Option']:
@@ -133,7 +165,7 @@ class Trade:
     def is_closed(self) -> bool:
         if date.today() > self.expiration_date:
             return True
-        if self.get_dangling_options():
+        if get_open_options(self.options):
             return True
         return False
 
@@ -160,49 +192,32 @@ class Trade:
         last_event = self.events[-1]
         return last_event.time - first_event.time
 
-    def get_dangling_options(self):
-        inventory = {
-            'call': {},
-            'put': {}
-        }
-        for option in self.options:
-            option_type = 'call' if option.is_call else 'put'
-            if inventory[option_type].get(option.strike) is None:
-                inventory[option_type][option.strike] = []
-            counterpart = None
-            for same_strike_option in inventory[option_type][option.strike]:
-                if option.is_long != same_strike_option.is_long:
-                    counterpart = same_strike_option
-                    break
-            if counterpart is not None:
-                inventory[option_type][option.strike].remove(counterpart)
-            else:
-                inventory[option_type][option.strike].append(option)
-        dangling_options = []
-        for strikes in inventory.values():
-            for option in strikes.values():
-                dangling_options.append(option)
-        return dangling_options
+
 
     def add_event(self, trade_event: 'TradeEvent'):
         self.events.append(trade_event)
         self.events.sort(key=lambda event: event.time)
-        self.strategies = [
-            (get_strategy(event.options), event.time)
-            for event in self.events
-        ]
+        options = []
+        self.strategies = []
+        for event in self.events:
+            options.extend(event.options)
+            self.strategies.append((get_strategy(get_open_options(options)), event.time))
+        # self.strategies = [
+        #     (get_strategy(), event.time)
+        #     for event in self.events
+        # ]
 
 
 class TradeEvent:
     def __init__(
             self,
-            time,
-            ticker,
-            expiration_date,
+            time: str,
+            ticker: str,
+            expiration_date: str,
             options,
     ):
         self.time = str_dt(time)
-        self.ticker = ticker
+        self.ticker = ticker.upper()
         self.expiration_date = str_dt(expiration_date, '%Y-%m-%d').date()
         self.options = [
             Option(
@@ -236,10 +251,7 @@ print(f'{round(account.profit, 2)=}')
 print(f'{round(account.win_percent, 2)=}')
 print(f'{round(account.average_profit, 2)=}')
 print(f'{str(account.average_duration)=}')
-print(f'{account.trades[("NVDA", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
-print(f'{account.trades[("SPY", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
-print(f'{account.trades[("ZM", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
-print(f'{account.trades[("AMD", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
-print(f'{account.trades[("MSFT", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
+print(f'{account.trades.values()=}')
+
 
 
