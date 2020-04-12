@@ -3,7 +3,7 @@ Convenient methods to transform strings.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, date
 from enum import IntEnum
 
 
@@ -147,6 +147,7 @@ def dt_str(dt_object: datetime, format_='%Y-%m-%dT%H:%M:%S') -> str:
 
 def str_dt(date_string: str, format_='%Y-%m-%dT%H:%M:%S') -> datetime:
     """
-    Converts an datetime string into a datetime object
+    Converts a datetime string into a datetime object
     """
     return datetime.strptime(date_string, format_)
+

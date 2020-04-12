@@ -7,88 +7,85 @@ from typing import List
 from string_conversions import Case, convert_case, str_dt
 
 
+def get_strategy(options: List['Option']):
+    options.sort(key=lambda option: option.strike)
+    options.sort(key=lambda option: option.is_call)
+    if len(options) == 1:
+        position = 'Long' if options[0].is_long else 'Short'
+        option_type = 'Call' if options[0].is_call else 'Put'
+        return f'{position} {option_type}'
+    if len(options) == 2:
+        position = '2-Option'
+        spread_type = 'Strategy'
+        if all([option.is_call for option in options]):
+            spread_type = 'Call Spread'
+            if options[0].is_long and not options[1].is_long:
+                position = 'Long'
+            if not options[0].is_long and options[1].is_long:
+                position = 'Short'
+        elif all([not option.is_call for option in options]):
+            spread_type = 'Put Spread'
+            if options[0].is_long and not options[1].is_long:
+                position = 'Short'
+            if not options[0].is_long and options[1].is_long:
+                position = 'Long'
+        else:
+            if options[0].is_long and options[1].is_long:
+                position = 'Long'
+            elif not options[0].is_long and not options[1].is_long:
+                position = 'Short'
+            if options[0].strike == options[1].strike:
+                spread_type = 'Straddle'
+            else:
+                spread_type = 'Strangle'
+        return f'{position} {spread_type}'
+    if len(options) == 3:
+        return '3-Option Strategy'
+    if len(options) == 4:
+        if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
+            if not options[0].is_call and not options[1].is_call and options[2].is_call and options[3].is_call:
+                if options[1].strike == options[2].strike:
+                    spread_type = 'Iron Butterfly'
+                elif options[2].strike - options[0].strike == options[3].strike - options[1].strike:
+                    spread_type = 'Iron Condor'
+                else:
+                    return '4-Option Strategy'
+                if options[0].is_long and not options[1].is_long and not options[2].is_long and options[3].is_long:
+                    return f'Short {spread_type}'
+                if not options[0].is_long and options[1].is_long and options[2].is_long and not options[3].is_long:
+                    return f'Long {spread_type}'
+
+        return '4-Option Strategy'
+
+
 class Account:
     def __init__(self):
-        self.value = 0.0
-        self.options: List['Option'] = []
-        self.trades: List['Trade'] = []
+        self.trades = {}
 
-    def withdraw(self, amount: float):
-        self.value -= amount
+    def execute_trade_event(self, trade_event: 'TradeEvent'):
+        trade = self.trades.get((trade_event.ticker, trade_event.expiration_date))
+        if trade is None:
+            trade = Trade(trade_event.expiration_date)
+            self.trades[(trade_event.ticker, trade_event.expiration_date)] = trade
+        trade.add_event(trade_event)
 
-    def deposit(self, amount: float):
-        self.value += amount
+    @property
+    def profit(self):
+        return sum(trade.profit for trade in self.trades.values())
 
-    def open_trade(self, option: 'Option', open_time: datetime):
-        trade = Trade(option, open_time)
-        self.trades.append(trade)
-        if option.is_long:
-            self.withdraw(option.price * 100)
-        else:
-            self.deposit(option.price * 100)
+    @property
+    def win_percent(self):
+        wins = [True for trade in self.trades.values() if trade.is_win]
+        return len(wins) / len(self.trades.values()) * 100
 
-    def close_trade(self, option: 'Option', close_time: datetime):
-        target_trade = None
-        for trade in self.trades:
-            if all([
-                trade.opening_option.ticker == option.ticker,
-                trade.opening_option.strike == option.strike,
-                trade.opening_option.is_call == option.is_call,
-                trade.opening_option.is_long == (not option.is_long),
-                trade.opening_option.expiration_date == option.expiration_date,
-            ]):
-                target_trade = trade
-                break
-        if target_trade is None:
-            raise LookupError(f'No trade could be found to close option {option}')
-        target_trade.close(option, close_time)
-        if option.is_long:
-            self.withdraw(option.price * 100)
-        else:
-            self.deposit(option.price * 100)
+    @property
+    def average_profit(self):
+        return self.profit / len(self.trades.values())
 
-    def get_total_profit(self):
-        return round(sum([trade.profit for trade in self.trades if trade.is_closed]), 2)
-
-    def get_average_profit(self):
-        return round(self.get_total_profit() / len([trade for trade in self.trades if trade.is_closed]), 2)
-
-    def get_average_profit_percentage(self):
-        total_profit_percentage = sum([trade.profit_percentage for trade in self.trades if trade.is_closed])
-        return round(total_profit_percentage / len([trade for trade in self.trades if trade.is_closed]), 2)
-
-    def get_win_percentage(self):
-        winning_trades = [True for trade in self.trades if trade.profit >= 0]
-        return round(len(winning_trades) / len(self.trades) * 100, 2)
-
-    def get_average_duration(self):
-        total_duration = sum([trade.duration for trade in self.trades if trade.is_closed], timedelta(0))
-        return str(total_duration / len(self.trades))
-
-    def open_option(self, option: 'Option'):
-        self.options.append(option)
-        if option.is_long:
-            self.withdraw(option.price * 100)
-        else:
-            self.deposit(option.price * 100)
-
-    def close_option(self, option: 'Option'):
-        counterpart = None
-        for existing_option in self.options:
-            if all([
-                existing_option.ticker == option.ticker,
-                existing_option.strike == option.strike,
-                existing_option.is_call == option.is_call,
-                existing_option.is_long == (not option.is_long),
-                existing_option.expiration_date == option.expiration_date,
-            ]):
-                counterpart = existing_option
-                break
-        if option.is_long:
-            self.withdraw(option.price * 100)
-        else:
-            self.deposit(option.price * 100)
-        self.options.remove(counterpart)
+    @property
+    def average_duration(self):
+        total_duration = sum([trade.duration for trade in self.trades.values()], start=timedelta(0))
+        return total_duration / len(self.trades.values())
 
 
 class Option:
@@ -100,7 +97,7 @@ class Option:
             is_call: bool,
             is_long: bool,
             expiration_date: date,
-            **kwargs,
+            **kwargs
     ):
         self.ticker = ticker.upper()
         self.strike = strike
@@ -117,37 +114,106 @@ class Option:
 
 
 class Trade:
+    def __init__(self, expiration_date: date):
+        self.events = []
+        self.strategies = []
+        self.expiration_date = expiration_date
+
+    def __repr__(self):
+
+
+    @property
+    def options(self) -> List['Option']:
+        ops = []
+        for event in self.events:
+            ops.extend(event.options)
+        return ops
+
+    @property
+    def is_closed(self) -> bool:
+        if date.today() > self.expiration_date:
+            return True
+        if self.get_dangling_options():
+            return True
+        return False
+
+    @property
+    def profit(self) -> float:
+        if not self.is_closed:
+            raise ValueError('Cannot get profit of unclosed trade')
+        total_profit = 0.0
+        for option in self.options:
+            total_profit += -option.price if option.is_long else option.price
+        return total_profit * 100
+
+    @property
+    def is_win(self) -> bool:
+        if self.profit >= 0:
+            return True
+        return False
+
+    @property
+    def duration(self) -> timedelta:
+        if not self.is_closed:
+            raise ValueError('Cannot get duration of unclosed trade')
+        first_event = self.events[0]
+        last_event = self.events[-1]
+        return last_event.time - first_event.time
+
+    def get_dangling_options(self):
+        inventory = {
+            'call': {},
+            'put': {}
+        }
+        for option in self.options:
+            option_type = 'call' if option.is_call else 'put'
+            if inventory[option_type].get(option.strike) is None:
+                inventory[option_type][option.strike] = []
+            counterpart = None
+            for same_strike_option in inventory[option_type][option.strike]:
+                if option.is_long != same_strike_option.is_long:
+                    counterpart = same_strike_option
+                    break
+            if counterpart is not None:
+                inventory[option_type][option.strike].remove(counterpart)
+            else:
+                inventory[option_type][option.strike].append(option)
+        dangling_options = []
+        for strikes in inventory.values():
+            for option in strikes.values():
+                dangling_options.append(option)
+        return dangling_options
+
+    def add_event(self, trade_event: 'TradeEvent'):
+        self.events.append(trade_event)
+        self.events.sort(key=lambda event: event.time)
+        self.strategies = [
+            (get_strategy(event.options), event.time)
+            for event in self.events
+        ]
+
+
+class TradeEvent:
     def __init__(
             self,
-            opening_option: 'Option',
-            open_time: datetime,
+            time,
+            ticker,
+            expiration_date,
+            options,
     ):
-        self.opening_option = opening_option
-        self.open_time = open_time
-        self.is_closed = False
-        self.close_time = None
-        self.closing_option = None
-        self.profit = 0.0
-        self.profit_percentage = 0.0
-        self.duration = None
-
-    def close(
-            self,
-            closing_option: 'Option',
-            close_time: datetime,
-    ):
-        self.is_closed = True
-        self.closing_option = closing_option
-        self.close_time = close_time
-        open_value = (self.opening_option.price * 100) if not self.opening_option.is_long else (self.opening_option.price * -100)
-        close_value = (self.closing_option.price * 100) if not self.closing_option.is_long else (self.closing_option.price * -100)
-        self.profit = open_value + close_value
-        try:
-            self.profit_percentage = (self.profit / abs(open_value)) * 100
-        except ZeroDivisionError:
-            self.profit_percentage = -100.0
-        self.duration = self.close_time - self.open_time
-        # print(f'{self.duration=}')
+        self.time = str_dt(time)
+        self.ticker = ticker
+        self.expiration_date = str_dt(expiration_date, '%Y-%m-%d').date()
+        self.options = [
+            Option(
+                ticker=self.ticker,
+                expiration_date=self.expiration_date,
+                **{
+                    convert_case(key, Case.CAMEL, Case.SNAKE): value
+                    for key, value in option_data.items()
+                }
+            ) for option_data in options
+        ]
 
 
 account = Account()
@@ -155,29 +221,25 @@ account = Account()
 with open(os.path.join('data', 'trade_events.json')) as data_file:
     events_data = json.load(data_file)
 
-for trade_event in events_data:
-    for option_data in trade_event['options']:
-        option = Option(
-            **{
-                convert_case(key, Case.CAMEL, Case.SNAKE): value
-                for key, value in option_data.items()}
-        )
-        if option_data.get('toOpen'):
-            account.open_trade(option, str_dt(trade_event.get('time')))
-        else:
-            account.close_trade(option, str_dt(trade_event.get('time')))
-        # print(f'{option=}')
-        # add or remove position from account
-        # if option_data['toOpen']:
-        #     account.open_option(option)
-        # else:
-        #     account.close_option(option)
+for trade_event_data in events_data:
+    trade_event = TradeEvent(
+        **{
+            convert_case(key, Case.CAMEL, Case.SNAKE): value
+            for key, value in trade_event_data.items()
+        }
+    )
+    account.execute_trade_event(trade_event)
+
 
 print(f'{len(account.trades)=}')
-print(f'{account.get_total_profit()=}')
-print(f'{account.get_average_profit()=}')
-print(f'{account.get_average_profit_percentage()=}')
-print(f'{account.get_win_percentage()=}')
-print(f'{account.get_average_duration()=}')
+print(f'{round(account.profit, 2)=}')
+print(f'{round(account.win_percent, 2)=}')
+print(f'{round(account.average_profit, 2)=}')
+print(f'{str(account.average_duration)=}')
+print(f'{account.trades[("NVDA", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
+print(f'{account.trades[("SPY", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
+print(f'{account.trades[("ZM", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
+print(f'{account.trades[("AMD", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
+print(f'{account.trades[("MSFT", str_dt("2020-04-09", "%Y-%m-%d").date())].strategies=}')
 
 
