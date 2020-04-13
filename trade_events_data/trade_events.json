@@ -1,268 +1,296 @@
 [
   {
-    "time": "2020-04-07T09:41:00",
+    "options": [
+      {
+        "strike": 260.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 1.42
+      },
+      {
+        "strike": 265.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 4.67
+      }
+    ],
     "ticker": "NVDA",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 265.00,
-        "price": 4.11,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 260.00,
-        "price": 2.78,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-09T14:55:00"
   },
   {
-    "time": "2020-04-07T11:33:00",
+    "options": [
+      {
+        "strike": 47.0,
+        "isCall": true,
+        "isLong": true,
+        "quantity": 1,
+        "price": 1.87
+      },
+      {
+        "strike": 50.0,
+        "isCall": true,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.13
+      },
+      {
+        "strike": 44.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.01
+      },
+      {
+        "strike": 47.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.07
+      }
+    ],
     "ticker": "AMD",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 44.00,
-        "price": 0.19,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 50.00,
-        "price": 0.35,
-        "isCall": true,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 47.00,
-        "price": 1.64,
-        "isCall": true,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 47.00,
-        "price": 0.75,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-09T10:24:00"
   },
   {
-    "time": "2020-04-07T11:46:00",
+    "options": [
+      {
+        "strike": 118.0,
+        "isCall": true,
+        "isLong": true,
+        "quantity": 1,
+        "price": 6.51
+      }
+    ],
     "ticker": "ZM",
-    "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 120.00,
-        "price": 2.77,
-        "isCall": true,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 118.00,
-        "price": 3.47,
-        "isCall": true,
-        "isLong": false,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
   },
   {
-    "time": "2020-04-08T10:05:00",
+    "options": [
+      {
+        "strike": 120.0,
+        "isCall": true,
+        "isLong": false,
+        "quantity": 1,
+        "price": 4.51
+      }
+    ],
+    "ticker": "ZM",
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
+  },
+  {
+    "options": [
+      {
+        "strike": 160.0,
+        "isCall": false,
+        "isLong": null,
+        "price": 0.0,
+        "quantity": 1
+      }
+    ],
+    "ticker": "MSFT",
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
+  },
+  {
+    "options": [
+      {
+        "strike": 170.0,
+        "isCall": true,
+        "isLong": null,
+        "price": 0.0,
+        "quantity": 1
+      }
+    ],
+    "ticker": "MSFT",
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
+  },
+  {
+    "options": [
+      {
+        "strike": 172.5,
+        "isCall": true,
+        "isLong": null,
+        "price": 0.0,
+        "quantity": 1
+      }
+    ],
+    "ticker": "MSFT",
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
+  },
+  {
+    "options": [
+      {
+        "strike": 157.5,
+        "isCall": false,
+        "isLong": null,
+        "price": 0.0,
+        "quantity": 1
+      }
+    ],
+    "ticker": "MSFT",
+    "time": "2020-04-09T16:00:00",
+    "expirationDate": "2020-04-09"
+  },
+  {
+    "options": [
+      {
+        "strike": 258.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.15
+      },
+      {
+        "strike": 254.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.05
+      }
+    ],
     "ticker": "SPY",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 254.00,
-        "price": 0.57,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 258.00,
-        "price": 1.12,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-08T15:44:00"
   },
   {
-    "time": "2020-04-08T14:43:00",
+    "options": [
+      {
+        "strike": 157.5,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.25
+      },
+      {
+        "strike": 160.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.43
+      },
+      {
+        "strike": 170.0,
+        "isCall": true,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.36
+      },
+      {
+        "strike": 172.5,
+        "isCall": true,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.12
+      }
+    ],
     "ticker": "MSFT",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 157.50,
-        "price": 0.25,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 160.00,
-        "price": 0.43,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 170.00,
-        "price": 0.36,
-        "isCall": true,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 172.50,
-        "price": 0.12,
-        "isCall": true,
-        "isLong": true,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-08T14:43:00"
   },
   {
-    "time": "2020-04-08T15:44:00",
+    "options": [
+      {
+        "strike": 254.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.57
+      },
+      {
+        "strike": 258.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 1.12
+      }
+    ],
     "ticker": "SPY",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 258.00,
-        "price": 0.15,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 254.00,
-        "price": 0.05,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-08T10:05:00"
   },
   {
-    "time": "2020-04-09T16:00:00",
-    "ticker": "MSFT",
-    "expirationDate": "2020-04-09",
     "options": [
       {
-        "strike": 157.50,
-        "price": 0.00,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 160.00,
-        "price": 0.00,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 170.00,
-        "price": 0.00,
+        "strike": 120.0,
         "isCall": true,
         "isLong": true,
-        "quantity": 1
+        "quantity": 1,
+        "price": 2.77
       },
       {
-        "strike": 172.50,
-        "price": 0.00,
+        "strike": 118.0,
         "isCall": true,
         "isLong": false,
-        "quantity": 1
+        "quantity": 1,
+        "price": 3.47
       }
-    ]
-  },
-  {
-    "time": "2020-04-09T16:00:00",
+    ],
     "ticker": "ZM",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 120.00,
-        "price": 4.51,
-        "isCall": true,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 118.00,
-        "price": 6.51,
-        "isCall": true,
-        "isLong": true,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-07T11:46:00"
   },
   {
-    "time": "2020-04-09T10:24:00",
+    "options": [
+      {
+        "strike": 44.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.19
+      },
+      {
+        "strike": 50.0,
+        "isCall": true,
+        "isLong": true,
+        "quantity": 1,
+        "price": 0.35
+      },
+      {
+        "strike": 47.0,
+        "isCall": true,
+        "isLong": false,
+        "quantity": 1,
+        "price": 1.64
+      },
+      {
+        "strike": 47.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 0.75
+      }
+    ],
     "ticker": "AMD",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 44.00,
-        "price": 0.01,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 50.00,
-        "price": 0.13,
-        "isCall": true,
-        "isLong": false,
-        "quantity": 1
-      },
-      {
-        "strike": 47.00,
-        "price": 1.87,
-        "isCall": true,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 47.00,
-        "price": 0.07,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-07T11:33:00"
   },
   {
-    "time": "2020-04-09T14:55:00",
+    "options": [
+      {
+        "strike": 265.0,
+        "isCall": false,
+        "isLong": false,
+        "quantity": 1,
+        "price": 4.11
+      },
+      {
+        "strike": 260.0,
+        "isCall": false,
+        "isLong": true,
+        "quantity": 1,
+        "price": 2.78
+      }
+    ],
     "ticker": "NVDA",
     "expirationDate": "2020-04-09",
-    "options": [
-      {
-        "strike": 265.00,
-        "price": 4.67,
-        "isCall": false,
-        "isLong": true,
-        "quantity": 1
-      },
-      {
-        "strike": 260.00,
-        "price": 1.42,
-        "isCall": false,
-        "isLong": false,
-        "quantity": 1
-      }
-    ]
+    "time": "2020-04-07T09:41:00"
   }
 ]

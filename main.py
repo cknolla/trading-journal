@@ -32,108 +32,6 @@ def get_open_options(options: List['Option']) -> List['Option']:
     return open_options
 
 
-def get_strategy(options: List['Option']) -> 'Strategy':
-    if not options:
-        return Strategy(
-            'Close Position',
-            '',
-            0.0,
-            0.0,
-            0.0,
-        )
-    options.sort(key=lambda option: option.strike)
-    options.sort(key=lambda option: option.is_call)
-    if len(options) == 1:
-        if options[0].is_long:
-            position = 'Long'
-            if options[0].is_call:
-                return Strategy(
-                    'Call',
-                    position,
-                    options[0].price * 100,
-                    float('inf'),
-                    options[0].price * 100,
-                )
-            else:
-                return Strategy(
-                    'Put',
-                    position,
-                    options[0].price * 100,
-                    options[0].strike * 100,
-                    options[0].price * 100,
-                )
-        else:
-            position = 'Short'
-            if options[0].is_call:
-                return Strategy(
-                    'Call',
-                    position,
-                    float('inf'),
-                    options[0].price * 100,
-                    float('inf'),
-                )
-            else:
-                return Strategy(
-                    'Put',
-                    position,
-                    options[0].strike * 100,
-                    options[0].price * 100,
-                    (options[0].strike * 100) - (options[0].price * 100)
-                )
-    if len(options) == 2:
-        if all([option.is_call for option in options]):
-            spread_type = 'Call Spread'
-            if options[0].is_long and not options[1].is_long:
-                return Strategy(
-                    'Call Spread',
-                    'Long',
-                    options[1].strike * 100 - options[0].strike * 100,
-                    (options[1].strike * 100 - options[0].strike * 100) - (options[0].price * 100 - options[1].price * 100),
-                    (options[0].price * 100 - options[1].price * 100),
-                )
-            if not options[0].is_long and options[1].is_long:
-                return Strategy(
-                    'Call Spread',
-                    'Short',
-                    options[1].strike * 100 - options[0].strike * 100,
-                    options[0].price * 100 - options[1].price * 100,
-                    (options[1].strike * 100 - options[0].strike * 100) - (options[0].price * 100 - options[1].price * 100)
-                )
-        elif all([not option.is_call for option in options]):
-            spread_type = 'Put Spread'
-            if options[0].is_long and not options[1].is_long:
-                position = 'Short'
-            if not options[0].is_long and options[1].is_long:
-                position = 'Long'
-        else:
-            if options[0].is_long and options[1].is_long:
-                position = 'Long'
-            elif not options[0].is_long and not options[1].is_long:
-                position = 'Short'
-            if options[0].strike == options[1].strike:
-                spread_type = 'Straddle'
-            else:
-                spread_type = 'Strangle'
-        return f'{position} {spread_type}'
-    if len(options) == 3:
-        return '3-Option Strategy'
-    if len(options) == 4:
-        if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
-            if not options[0].is_call and not options[1].is_call and options[2].is_call and options[3].is_call:
-                if options[1].strike == options[2].strike:
-                    spread_type = 'Iron Butterfly'
-                elif options[2].strike - options[0].strike == options[3].strike - options[1].strike:
-                    spread_type = 'Iron Condor'
-                else:
-                    return '4-Option Strategy'
-                if options[0].is_long and not options[1].is_long and not options[2].is_long and options[3].is_long:
-                    return f'Short {spread_type}'
-                if not options[0].is_long and options[1].is_long and options[2].is_long and not options[3].is_long:
-                    return f'Long {spread_type}'
-
-        return '4-Option Strategy'
-
-
 class Account:
     def __init__(self):
         self.trades = {}
@@ -386,8 +284,15 @@ class Trade:
         return last_event.time - first_event.time
 
     def add_event(self, trade_event: 'TradeEvent'):
-        self.events.append(trade_event)
-        self.events.sort(key=lambda event: event.time)
+        existing_event = False
+        for event in self.events:
+            if event.ticker == trade_event.ticker and event.time == trade_event.time:
+                event.options.extend(trade_event.options)
+                existing_event = True
+                break
+        if not existing_event:
+            self.events.append(trade_event)
+            self.events.sort(key=lambda event: event.time)
         options = []
         self.strategies = []
         for event in self.events:
@@ -423,7 +328,7 @@ class TradeEvent:
 
 account = Account()
 
-with open(os.path.join('trade_events_data', 'trades.json')) as data_file:
+with open(os.path.join('trade_events_data', 'trade_events.json')) as data_file:
     events_data = json.load(data_file)
 
 for trade_event_data in events_data:
