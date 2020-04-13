@@ -144,5 +144,8 @@ dmypy.json
 
 # End of https://www.gitignore.io/api/python,visualstudiocode
 
+raw_data/*
+trade_events_data/*
+
 # keep gitkeep files - should be last in .gitignore
 !.gitkeep

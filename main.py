@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import json
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import List
 
+from robinhood_trade_event_parser import parse_robinhood_file
 from string_conversions import Case, convert_case, str_dt
 
 
@@ -57,7 +59,7 @@ class Account:
         return round(self.profit / len(self.trades.values()), 2)
 
     @property
-    def average_duration(self):
+    def average_trade_duration(self):
         total_duration = sum([trade.duration for trade in self.trades.values()], start=timedelta(0))
         return total_duration / len(self.trades.values())
 
@@ -144,29 +146,125 @@ class Strategy:
                 if not options[0].is_long and options[1].is_long:
                     self.name = 'Put Debit Spread'
             else:
-                position = 'Long'
-                if not options[0].is_long and not options[1].is_long:
-                    position = 'Short'
-                if options[0].strike == options[1].strike:
-                    spread_type = 'Straddle'
+                if all([
+                    not options[0].is_call,
+                    options[0].is_long,
+                    options[1].is_call,
+                    not options[1].is_long,
+                    options[1].strike > options[0].strike,
+                ]):
+                    self.name = 'Protective Collar'
+                elif all([
+                    options[0].is_call,
+                    options[0].is_long,
+                    not options[1].is_call,
+                    not options[1].is_long,
+                    options[1].strike == options[0].strike,
+                ]):
+                    self.name = 'Long Combination'
+                elif all([
+                    not options[0].is_call,
+                    not options[0].is_long,
+                    options[1].is_call,
+                    options[1].is_long,
+                    options[1].strike == options[0].strike,
+                ]):
+                    self.name = 'Short Combination'
                 else:
-                    spread_type = 'Strangle'
-                self.name = f'{position} {spread_type}'
+                    position = 'Long'
+                    if not options[0].is_long and not options[1].is_long:
+                        position = 'Short'
+                    if options[0].strike == options[1].strike:
+                        spread_type = 'Straddle'
+                    else:
+                        spread_type = 'Strangle'
+                    self.name = f'{position} {spread_type}'
         if len(options) == 3:
             self.name = '3-Option Strategy'
+            if all([option.is_call for option in options]):
+                if all([
+                    not options[0].is_long,
+                    options[1].is_long,
+                    options[2].is_long,
+                    options[1].strike == options[2].strike,
+                ]):
+                    self.name = 'Call Back Spread'
+                elif all([
+                    options[0].is_long,
+                    not options[1].is_long,
+                    not options[2].is_long,
+                    options[1].strike == options[2].strike,
+                ]):
+                    self.name = 'Call Front Spread'
+            elif all([not option.is_call for option in options]):
+                if all([
+                    options[0].is_long,
+                    options[1].is_long,
+                    not options[2].is_long,
+                    options[0].strike == options[1].strike
+                ]):
+                    self.name = 'Put Back Spread'
+                elif all([
+                    not options[0].is_long,
+                    not options[1].is_long,
+                    options[2].is_long,
+                    options[0].strike == options[1].strike,
+                ]):
+                    self.name = 'Put Front Spread'
         if len(options) == 4:
+            self.name = '4-Option Strategy'
             if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
                 if not options[0].is_call and not options[1].is_call and options[2].is_call and options[3].is_call:
                     if options[1].strike == options[2].strike:
                         spread_type = 'Iron Butterfly'
                     elif options[2].strike - options[0].strike == options[3].strike - options[1].strike:
                         spread_type = 'Iron Condor'
-                    else:
-                        self.name = '4-Option Strategy'
                     if options[0].is_long and not options[1].is_long and not options[2].is_long and options[3].is_long:
                         self.name = f'Short {spread_type}'
                     if not options[0].is_long and options[1].is_long and options[2].is_long and not options[3].is_long:
                         self.name = f'Long {spread_type}'
+                elif all([option.is_call for option in options]):
+                    if all([
+                        options[0].is_long,
+                        not options[1].is_long,
+                        not options[2].is_long,
+                        options[3].is_long,
+                    ]):
+                        if options[1].strike == options[2].strike:
+                            self.name = f'Long Call Butterfly'
+                        else:
+                            self.name = 'Long Call Condor'
+                    elif all([
+                        not options[0].is_long,
+                        options[1].is_long,
+                        options[2].is_long,
+                        not options[3].is_long,
+                    ]):
+                        if options[1].strike == options[2].strike:
+                            self.name = 'Short Call Butterfly'
+                        else:
+                            self.name = 'Short Call Condor'
+                elif all([not option.is_call for option in options]):
+                    if all([
+                        options[0].is_long,
+                        not options[1].is_long,
+                        not options[2].is_long,
+                        options[3].is_long,
+                    ]):
+                        if options[1].strike == options[2].strike:
+                            self.name = f'Long Put Butterfly'
+                        else:
+                            self.name = 'Long Put Condor'
+                    elif all([
+                        not options[0].is_long,
+                        options[1].is_long,
+                        options[2].is_long,
+                        not options[3].is_long,
+                    ]):
+                        if options[1].strike == options[2].strike:
+                            self.name = 'Short Put Butterfly'
+                        else:
+                            self.name = 'Short Put Condor'
 
     def _get_profit_loss(self, sorted_options: List['Option']):
         price_points = [min(sorted_options[0].strike - 1, 0), *[option.strike for option in sorted_options], sorted_options[-1].strike + 1]
@@ -328,24 +426,33 @@ class TradeEvent:
 
 account = Account()
 
-with open(os.path.join('trade_events_data', 'trade_events.json')) as data_file:
-    events_data = json.load(data_file)
+# parse all raw data into ingestible json files
+for root, dirs, filenames in os.walk('raw_data'):
+    for filename in filenames:
+        if re.search(r'\.txt$', filename, re.IGNORECASE):
+            parse_robinhood_file(os.path.join(root, filename))
 
-for trade_event_data in events_data:
-    trade_event = TradeEvent(
-        **{
-            convert_case(key, Case.CAMEL, Case.SNAKE): value
-            for key, value in trade_event_data.items()
-        }
-    )
-    account.execute_trade_event(trade_event)
+# process all json files in trade events folder
+for root, dirs, filenames in os.walk('trade_events_data'):
+    for filename in filenames:
+        if re.search(r'\.json$', filename, re.IGNORECASE):
+            with open(os.path.join(root, filename)) as data_file:
+                events_data = json.load(data_file)
+                for trade_event_data in events_data:
+                    trade_event = TradeEvent(
+                        **{
+                            convert_case(key, Case.CAMEL, Case.SNAKE): value
+                            for key, value in trade_event_data.items()
+                        }
+                    )
+                    account.execute_trade_event(trade_event)
 
-
+# report statistics
 print(f'{len(account.trades)=}')
 print(f'{account.profit=}')
 print(f'{account.win_percent=}')
-print(f'{round(account.average_profit, 2)=}')
-print(f'{str(account.average_duration)=}')
+print(f'{account.average_profit=}')
+print(f'{str(account.average_trade_duration)=}')
 print(f'{account.trades.values()=}')
 
 
