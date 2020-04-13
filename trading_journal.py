@@ -214,14 +214,29 @@ class Strategy:
         if len(options) == 4:
             self.name = '4-Option Strategy'
             if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
-                if not options[0].is_call and not options[1].is_call and options[2].is_call and options[3].is_call:
+                if all([
+                    not options[0].is_call,
+                    not options[1].is_call,
+                    options[2].is_call,
+                    options[3].is_call,
+                ]):
                     if options[1].strike == options[2].strike:
                         spread_type = 'Iron Butterfly'
-                    elif options[2].strike - options[0].strike == options[3].strike - options[1].strike:
+                    else:
                         spread_type = 'Iron Condor'
-                    if options[0].is_long and not options[1].is_long and not options[2].is_long and options[3].is_long:
+                    if all([
+                        options[0].is_long,
+                        not options[1].is_long,
+                        not options[2].is_long,
+                        options[3].is_long,
+                    ]):
                         self.name = f'Short {spread_type}'
-                    if not options[0].is_long and options[1].is_long and options[2].is_long and not options[3].is_long:
+                    elif all([
+                        not options[0].is_long,
+                        options[1].is_long,
+                        options[2].is_long,
+                        not options[3].is_long,
+                    ]):
                         self.name = f'Long {spread_type}'
                 elif all([option.is_call for option in options]):
                     if all([
