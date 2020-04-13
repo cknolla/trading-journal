@@ -13,7 +13,8 @@ source venv/bin/activate
 
 ## How to Use
 Within `/raw_data`, create a `.txt` file named with the date of the trade events that occurred for that day.
-For example, `2020-04-09.txt` will contain the trades that occurred on April 9th. The name isn't significant, it just needs to be unique.
+For example, `2020-04-09.txt` will contain the trades that occurred on April 9th. 
+The name isn't significant: it just needs to be unique.
 
 From the Robinhood Account --> History page, copy the entire contents of a trade event into the `.txt` file.
 
@@ -55,7 +56,8 @@ Filled Quantity
 ```
 
 Do this for each trade event for that day. *Important: Separate each trade event by at least 1 blank line.* 
-Continue adding trade events until all positions are in a closed state. These can be across several files.
+Continue adding trade events until all positions are in a closed state. Expirations, exercises, and assignments are supported.
+Events can be in one large file or spread across several files.
 
 Finally, run `python3.8 trading_journal.py` to parse the `.txt` files into `.json` files (found in `/trade_events_data`)
 and report trade data in the console.
