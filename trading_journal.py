@@ -9,6 +9,36 @@ from robinhood_trade_event_parser import parse_robinhood_file
 from string_conversions import Case, convert_case, str_dt, convert_keys
 
 
+def create_report(report: dict):
+    with open(os.path.join('reports', datetime.now().isoformat() + '.json'), 'w') as output_file:
+        json.dump(convert_keys(report, Case.SNAKE, Case.CAMEL), output_file, indent=2)
+
+
+def parse_raw_data():
+    # parse all raw data into ingestible json files
+    for root, dirs, filenames in os.walk('raw_data'):
+        for filename in filenames:
+            if re.search(r'\.txt$', filename, re.IGNORECASE):
+                parse_robinhood_file(os.path.join(root, filename))
+
+
+def process_trade_events_data():
+    # process all json files in trade events folder
+    for root, dirs, filenames in os.walk('trade_events_data'):
+        for filename in filenames:
+            if re.search(r'\.json$', filename, re.IGNORECASE):
+                with open(os.path.join(root, filename)) as data_file:
+                    events_data = json.load(data_file)
+                    for trade_event_data in events_data:
+                        trade_event = TradeEvent(
+                            **{
+                                convert_case(key, Case.CAMEL, Case.SNAKE): value
+                                for key, value in trade_event_data.items()
+                            }
+                        )
+                        account.execute_trade_event(trade_event)
+
+
 def get_open_options(options: List['Option']) -> List['Option']:
     inventory = {
         'call': {},
@@ -34,9 +64,16 @@ def get_open_options(options: List['Option']) -> List['Option']:
     return open_options
 
 
+def sort_options(options: List['Option']) -> List['Option']:
+    sorted_options = sorted(options, key=lambda option: option.strike)
+    sorted_options.sort(key=lambda option: option.is_call)
+    return sorted_options
+
+
 class Account:
     def __init__(self):
         self.trades = {}
+        self.shares = []
 
     def execute_trade_event(self, trade_event: 'TradeEvent'):
         trade = self.trades.get((trade_event.ticker, trade_event.expiration_date))
@@ -58,8 +95,7 @@ class Account:
             'closed_trades': [trade.report() for trade in closed_trades],
             'open_trades': [trade.report() for trade in open_trades],
         }
-        with open(os.path.join('reports', datetime.now().isoformat() + '.json'), 'w') as output_file:
-            json.dump(convert_keys(stats, Case.SNAKE, Case.CAMEL), output_file, indent=2)
+        create_report(stats)
 
     def get_profit(self, trades=None) -> float:
         if trades is None:
@@ -132,26 +168,26 @@ class Option:
 class Strategy:
     def __init__(
             self,
+            trade_event: 'TradeEvent',
             options: List['Option'],
-            start_time: datetime,
     ):
-        self.name = 'Unknown Strategy'
+        self.trade_event = trade_event
+        self.options = sort_options(options)
+        self.name = f'{len(self.options)}-Option Strategy'
         self.max_profit = float('nan')
         self.max_loss = float('nan')
         self.collateral = 0.0
-        self.start_time = start_time
-        self.options = options
-
-        if not options:
+        if not self.options:
             self.name = 'Close Position'
             self.max_loss = 0.0
             self.max_profit = 0.0
             return
-        options.sort(key=lambda option: option.strike)
-        options.sort(key=lambda option: option.is_call)
-        self.options = options
+        self._get_name()
         self._get_profit_loss()
         self._get_collateral()
+
+    def _get_name(self):
+        options = self.options
         if len(options) == 1:
             if options[0].is_long:
                 if options[0].is_call:
@@ -209,7 +245,6 @@ class Strategy:
                         spread_type = 'Strangle'
                     self.name = f'{position} {spread_type}'
         if len(options) == 3:
-            self.name = '3-Option Strategy'
             if all([option.is_call for option in options]):
                 if all([
                     not options[0].is_long,
@@ -264,25 +299,7 @@ class Strategy:
                             self.name = 'Long Big Lizard'
                         else:
                             self.name = 'Long Jade Lizard'
-                # elif all([
-                #     options[0].is_call,
-                #     not options[1].is_call,
-                #     options[2].is_call,
-                # ]):
-                #     if all([
-                #         not options[0].is_long,
-                #         not options[1].is_long,
-                #         options[2].is_long,
-                #     ]):
-                #         self.name = 'Short Big Lizard'
-                #     elif all([
-                #         options[0].is_long,
-                #         options[1].is_long,
-                #         not options[2].is_long,
-                #     ]):
-                #         self.name = 'Long Big Lizard'
         if len(options) == 4:
-            self.name = '4-Option Strategy'
             if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
                 if all([
                     not options[0].is_call,
@@ -361,11 +378,10 @@ class Strategy:
             profit_losses.append(round(price_point_profit, 2))
         max_profit_loss = max(profit_losses)
         min_profit_loss = min(profit_losses)
-        if any([
-            max_profit_loss == profit_losses[-1] and profit_losses[-1] > profit_losses[-2],
-            max_profit_loss == profit_losses[0] and profit_losses[0] > profit_losses[1],
-        ]):
+        if max_profit_loss == profit_losses[-1] and profit_losses[-1] > profit_losses[-2]:
             self.max_profit = float('inf')
+        elif max_profit_loss == profit_losses[0] and profit_losses[0] > profit_losses[1]:
+            self.max_profit = self.options[0].strike * 100
         else:
             self.max_profit = max_profit_loss
         if min_profit_loss == profit_losses[-1] and profit_losses[-1] < profit_losses[-2]:
@@ -401,7 +417,6 @@ class Strategy:
             max_loss = '-inf'
         return {
             'name': self.name,
-            'start_time': self.start_time.isoformat(),
             'max_profit': max_profit,
             'max_loss': max_loss,
             'collateral': self.collateral,
@@ -413,8 +428,8 @@ class Strategy:
 
 class Trade:
     def __init__(self, ticker: str, expiration_date: date):
-        self.events: List['TradeEvent'] = []
-        self.strategies: List['Strategy'] = []
+        self.trade_events: List['TradeEvent'] = []
+        # self.strategies: List['Strategy'] = []
         self.ticker: str = ticker
         self.expiration_date: date = expiration_date
 
@@ -433,16 +448,22 @@ class Trade:
         return {
             'ticker': self.ticker,
             'expiration_date': self.expiration_date.strftime('%Y-%m-%d'),
-            'strategies': [
-                strategy.report() for strategy in self.strategies
+            'trade_events': [
+                event.report() for event in self.trade_events
             ],
             **stats,
         }
 
     @property
+    def strategies(self) -> List['Strategy']:
+        return [
+            event.strategy for event in self.trade_events
+        ]
+
+    @property
     def options(self) -> List['Option']:
         ops = []
-        for event in self.events:
+        for event in self.trade_events:
             ops.extend(event.options)
         return ops
 
@@ -450,8 +471,8 @@ class Trade:
     def is_closed(self) -> bool:
         if date.today() > self.expiration_date:
             return True
-        if get_open_options(self.options):
-            return False
+        if not get_open_options(self.options):
+            return True
         return False
 
     @property
@@ -474,12 +495,12 @@ class Trade:
         if not self.is_closed:
             raise ValueError('Cannot get profit of unclosed trade')
         collaterals = []
-        for index, strategy in enumerate(self.strategies):
+        for index, event in enumerate(self.trade_events):
             try:
-                close_time = self.strategies[index + 1].start_time
+                close_time = self.trade_events[index + 1].execution_time
             except IndexError:
                 break
-            collaterals.append(self.strategies[index].collateral * ((close_time - self.strategies[index].start_time) / self.duration))
+            collaterals.append(event.strategy.collateral * ((close_time - event.strategy.trade_event.execution_time) / self.duration))
         average_collateral = sum(collaterals) / len(collaterals)
         return round((self.profit / average_collateral) * 100, 2)
 
@@ -487,36 +508,39 @@ class Trade:
     def duration(self) -> timedelta:
         if not self.is_closed:
             raise ValueError('Cannot get duration of unclosed trade')
-        first_event = self.events[0]
-        last_event = self.events[-1]
-        return last_event.time - first_event.time
+        first_event = self.trade_events[0]
+        last_event = self.trade_events[-1]
+        return last_event.execution_time - first_event.execution_time
 
     def add_event(self, trade_event: 'TradeEvent'):
         existing_event = False
-        for event in self.events:
-            if event.ticker == trade_event.ticker and event.time == trade_event.time:
+        for event in self.trade_events:
+            if event.ticker == trade_event.ticker and event.execution_time == trade_event.execution_time:
                 event.options.extend(trade_event.options)
                 existing_event = True
                 break
         if not existing_event:
-            self.events.append(trade_event)
-            self.events.sort(key=lambda event: event.time)
+            trade_event.trade = self
+            self.trade_events.append(trade_event)
+            self.trade_events.sort(key=lambda event: event.execution_time)
+        # trade_event.determine_strategy()
         options = []
-        self.strategies = []
-        for event in self.events:
+        # self.strategies = []
+        for event in self.trade_events:
             options.extend(event.options)
-            self.strategies.append(Strategy(get_open_options(options), event.time))
+            event.strategy = Strategy(event, get_open_options(options))
+            # self.strategies.append(Strategy(get_open_options(options), event.time))
 
 
 class TradeEvent:
     def __init__(
             self,
-            time: str,
+            execution_time: str,
             ticker: str,
             expiration_date: str,
             options,
     ):
-        self.time = str_dt(time)
+        self.execution_time = str_dt(execution_time)
         self.ticker = ticker.upper()
         self.expiration_date = str_dt(expiration_date, '%Y-%m-%d').date()
         self.options = []
@@ -532,39 +556,26 @@ class TradeEvent:
                         }
                     )
                 )
+        self.options = sort_options(self.options)
+        self.strategy = None
+        self.trade = None
+
+    def report(self):
+        return {
+            'execution_time': self.execution_time.isoformat(),
+            'strategy': self.strategy.report(),
+            'options': [
+                option.report() for option in self.options
+            ]
+        }
 
 
-account = Account()
+if __name__ == '__main__':
+    account = Account()
+    parse_raw_data()
+    process_trade_events_data()
+    account.report()
 
-# parse all raw data into ingestible json files
-for root, dirs, filenames in os.walk('raw_data'):
-    for filename in filenames:
-        if re.search(r'\.txt$', filename, re.IGNORECASE):
-            parse_robinhood_file(os.path.join(root, filename))
-
-# process all json files in trade events folder
-for root, dirs, filenames in os.walk('trade_events_data'):
-    for filename in filenames:
-        if re.search(r'\.json$', filename, re.IGNORECASE):
-            with open(os.path.join(root, filename)) as data_file:
-                events_data = json.load(data_file)
-                for trade_event_data in events_data:
-                    trade_event = TradeEvent(
-                        **{
-                            convert_case(key, Case.CAMEL, Case.SNAKE): value
-                            for key, value in trade_event_data.items()
-                        }
-                    )
-                    account.execute_trade_event(trade_event)
-
-account.report()
-# report statistics
-# print(f'{len(account.trades)=}')
-# print(f'{account.profit=}')
-# print(f'{account.win_percent=}')
-# print(f'{account.average_profit=}')
-# print(f'{str(account.average_trade_duration)=}')
-# print(f'{account.trades.values()=}')
 
 
 

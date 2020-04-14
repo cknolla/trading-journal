@@ -7,8 +7,8 @@ from datetime import datetime
 def parse_robinhood_file(filepath):
     def finish_trade_event(trade_event):
         if trade_event != default_trade_event:
-            trade_event['expirationDate'] = datetime.strptime(f'{trade_event["time"].year}-{trade_event["expirationDate"]}', '%Y-%m-%d').date().strftime('%Y-%m-%d')
-            trade_event['time'] = trade_event['time'].strftime('%Y-%m-%dT%H:%M:%S')
+            trade_event['expirationDate'] = datetime.strptime(f'{trade_event["executionTime"].year}-{trade_event["expirationDate"]}', '%Y-%m-%d').date().strftime('%Y-%m-%d')
+            trade_event['executionTime'] = trade_event['executionTime'].strftime('%Y-%m-%dT%H:%M:%S')
             trade_events.append(trade_event)
     trade_events = []
     with open(filepath) as input_file:
@@ -44,7 +44,7 @@ def parse_robinhood_file(filepath):
                         month = exercise_date_line.group(1).zfill(2)
                         day = exercise_date_line.group(2).zfill(2)
                         year = exercise_date_line.group(3)
-                        trade_event['time'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
+                        trade_event['executionTime'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
                         trade_event['expirationDate'] = f'{month}-{day}'
                         break
                 trade_event['options'].append(option_data)
@@ -69,7 +69,7 @@ def parse_robinhood_file(filepath):
                         month = exercise_date_line.group(1).zfill(2)
                         day = exercise_date_line.group(2).zfill(2)
                         year = exercise_date_line.group(3)
-                        trade_event['time'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
+                        trade_event['executionTime'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
                         trade_event['expirationDate'] = f'{month}-{day}'
                         break
                 trade_event['options'].append(option_data)
@@ -94,7 +94,7 @@ def parse_robinhood_file(filepath):
                         month = exercise_date_line.group(1).zfill(2)
                         day = exercise_date_line.group(2).zfill(2)
                         year = exercise_date_line.group(3)
-                        trade_event['time'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
+                        trade_event['executionTime'] = datetime.strptime(f'{year}-{month}-{day} 16:00:00', '%Y-%m-%d %H:%M:%S')
                         trade_event['expirationDate'] = f'{month}-{day}'
                         break
                 trade_event['options'].append(option_data)
@@ -116,11 +116,11 @@ def parse_robinhood_file(filepath):
                         hour = execution_time_line.group(4).zfill(2)
                         minute = execution_time_line.group(5).zfill(2)
                         am_pm = execution_time_line.group(6)
-                        trade_event['time'] = datetime.strptime(f'{month} {day} {year} {hour}:{minute} {am_pm}', '%b %d %Y %I:%M %p')
+                        trade_event['executionTime'] = datetime.strptime(f'{month} {day} {year} {hour}:{minute} {am_pm}', '%b %d %Y %I:%M %p')
                     elif quantity_price_line := re.search(r'(\d+) Contract at \$(\d+\.?\d*)', option_detail_line):
                         option_data['quantity'] = int(quantity_price_line.group(1))
                         option_data['price'] = round(float(quantity_price_line.group(2)), 2)
-                    if trade_event.get('time') and option_data.get('price'):
+                    if trade_event.get('executionTime') and option_data.get('price'):
                         break
                 trade_event['options'].append(option_data)
 
