@@ -146,6 +146,7 @@ dmypy.json
 
 raw_data/*
 trade_events_data/*
+reports/*
 
 # keep gitkeep files - should be last in .gitignore
 !.gitkeep

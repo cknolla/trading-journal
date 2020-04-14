@@ -138,6 +138,21 @@ def convert_case(string: str, source_case: Case, target_case: Case) -> str:
     return dispatch[source_case][target_case](string)
 
 
+def convert_keys(dictionary: dict, from_case: Case, to_case: Case):
+    converted_dict = {}
+    for key, value in dictionary.items():
+        if isinstance(value, dict):
+            value = convert_keys(value, from_case, to_case)
+        if isinstance(value, list):
+            converted_list = []
+            for item in value:
+                converted_list.append(convert_keys(item, from_case, to_case))
+            value = converted_list
+        key = convert_case(key, from_case, to_case)
+        converted_dict[key] = value
+    return converted_dict
+
+
 def dt_str(dt_object: datetime, format_='%Y-%m-%dT%H:%M:%S') -> str:
     """
     Converts python datetime object into datetime string

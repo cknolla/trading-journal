@@ -56,7 +56,7 @@ Filled Quantity
 ```
 
 Do this for each trade event for that day. *Important: Separate each trade event by at least 1 blank line.* 
-Continue adding trade events until all positions are in a closed state. Expirations, exercises, and assignments are supported.
+Expirations, exercises, and assignments are supported.
 Events can be in one large file or spread across several files.
 
 Finally, run `python3.8 trading_journal.py` to parse the `.txt` files into `.json` files (found in `/trade_events_data`)

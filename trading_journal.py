@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from typing import List
 
 from robinhood_trade_event_parser import parse_robinhood_file
-from string_conversions import Case, convert_case, str_dt
+from string_conversions import Case, convert_case, str_dt, convert_keys
 
 
 def get_open_options(options: List['Option']) -> List['Option']:
@@ -45,23 +45,43 @@ class Account:
             self.trades[(trade_event.ticker, trade_event.expiration_date)] = trade
         trade.add_event(trade_event)
 
-    @property
-    def profit(self):
-        return round(sum(trade.profit for trade in self.trades.values()), 2)
+    def report(self):
+        all_trades = list(self.trades.values())
+        all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
+        closed_trades = list(filter(lambda trade: trade.is_closed, all_trades))
+        open_trades = [trade for trade in all_trades if trade not in closed_trades]
+        stats = {
+            'total_profit': self.get_profit(closed_trades),
+            'average_profit': self.get_average_profit(closed_trades),
+            'win_percent': self.get_win_percent(closed_trades),
+            'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
+            'closed_trades': [trade.report() for trade in closed_trades],
+            'open_trades': [trade.report() for trade in open_trades],
+        }
+        with open(os.path.join('reports', datetime.now().isoformat() + '.json'), 'w') as output_file:
+            json.dump(convert_keys(stats, Case.SNAKE, Case.CAMEL), output_file, indent=2)
 
-    @property
-    def win_percent(self):
-        wins = [True for trade in self.trades.values() if trade.is_win]
-        return round(len(wins) / len(self.trades.values()) * 100, 2)
+    def get_profit(self, trades=None) -> float:
+        if trades is None:
+            trades = self.trades.values()
+        return round(sum(trade.profit for trade in trades), 2)
 
-    @property
-    def average_profit(self):
-        return round(self.profit / len(self.trades.values()), 2)
+    def get_average_profit(self, trades=None) -> float:
+        if trades is None:
+            trades = self.trades.values()
+        return round(self.get_profit(trades) / len(trades), 2)
 
-    @property
-    def average_trade_duration(self):
-        total_duration = sum([trade.duration for trade in self.trades.values()], start=timedelta(0))
-        return total_duration / len(self.trades.values())
+    def get_win_percent(self, trades=None) -> float:
+        if trades is None:
+            trades = self.trades.values()
+        wins = [True for trade in trades if trade.is_win]
+        return round(len(wins) / len(trades) * 100, 2)
+
+    def get_average_trade_duration(self, trades=None) -> timedelta:
+        if trades is None:
+            trades = self.trades.values()
+        total_duration = sum([trade.duration for trade in trades], start=timedelta(0))
+        return total_duration / len(trades)
 
 
 class Option:
@@ -88,6 +108,14 @@ class Option:
     def __str__(self):
         return f'<Option {self.ticker} {"+" if self.is_long else "-"}{self.strike}{"c" if self.is_call else "p"} {self.expiration_date}>'
 
+    def report(self):
+        return {
+            'is_call': self.is_call,
+            'is_long': self.is_long,
+            'strike': self.strike,
+            'price': self.price,
+        }
+
     def get_profit_at(self, underlying_price: float) -> float:
         if self.is_call:
             if self.is_long:
@@ -112,6 +140,7 @@ class Strategy:
         self.max_loss = float('nan')
         self.collateral = 0.0
         self.start_time = start_time
+        self.options = options
 
         if not options:
             self.name = 'Close Position'
@@ -120,8 +149,9 @@ class Strategy:
             return
         options.sort(key=lambda option: option.strike)
         options.sort(key=lambda option: option.is_call)
-        self._get_profit_loss(options)
-        self._get_collateral(options)
+        self.options = options
+        self._get_profit_loss()
+        self._get_collateral()
         if len(options) == 1:
             if options[0].is_long:
                 if options[0].is_call:
@@ -140,7 +170,6 @@ class Strategy:
                 if not options[0].is_long and options[1].is_long:
                     self.name = 'Call Credit Spread'
             elif all([not option.is_call for option in options]):
-                spread_type = 'Put Spread'
                 if options[0].is_long and not options[1].is_long:
                     self.name = 'Put Credit Spread'
                 if not options[0].is_long and options[1].is_long:
@@ -211,6 +240,47 @@ class Strategy:
                     options[0].strike == options[1].strike,
                 ]):
                     self.name = 'Put Front Spread'
+            else:
+                if all([
+                    not options[0].is_call,
+                    options[1].is_call,
+                    options[2].is_call,
+                ]):
+                    if all([
+                        not options[0].is_long,
+                        not options[1].is_long,
+                        options[2].is_long,
+                    ]):
+                        if options[0].strike == options[1].strike:
+                            self.name = 'Short Big Lizard'
+                        else:
+                            self.name = 'Short Jade Lizard'
+                    elif all([
+                        options[0].is_long,
+                        options[1].is_long,
+                        not options[2].is_long,
+                    ]):
+                        if options[0].strike == options[1].strike:
+                            self.name = 'Long Big Lizard'
+                        else:
+                            self.name = 'Long Jade Lizard'
+                # elif all([
+                #     options[0].is_call,
+                #     not options[1].is_call,
+                #     options[2].is_call,
+                # ]):
+                #     if all([
+                #         not options[0].is_long,
+                #         not options[1].is_long,
+                #         options[2].is_long,
+                #     ]):
+                #         self.name = 'Short Big Lizard'
+                #     elif all([
+                #         options[0].is_long,
+                #         options[1].is_long,
+                #         not options[2].is_long,
+                #     ]):
+                #         self.name = 'Long Big Lizard'
         if len(options) == 4:
             self.name = '4-Option Strategy'
             if options[1].strike - options[0].strike == options[3].strike - options[2].strike:
@@ -281,12 +351,12 @@ class Strategy:
                         else:
                             self.name = 'Short Put Condor'
 
-    def _get_profit_loss(self, sorted_options: List['Option']):
-        price_points = [min(sorted_options[0].strike - 1, 0), *[option.strike for option in sorted_options], sorted_options[-1].strike + 1]
+    def _get_profit_loss(self):
+        price_points = [min(self.options[0].strike - 1, 0), *[option.strike for option in self.options], self.options[-1].strike + 1]
         profit_losses = []
         for price_point in price_points:
             price_point_profit = 0.0
-            for option in sorted_options:
+            for option in self.options:
                 price_point_profit += option.get_profit_at(price_point)
             profit_losses.append(round(price_point_profit, 2))
         max_profit_loss = max(profit_losses)
@@ -298,18 +368,17 @@ class Strategy:
             self.max_profit = float('inf')
         else:
             self.max_profit = max_profit_loss
-        if any([
-            min_profit_loss == profit_losses[-1] and profit_losses[-1] < profit_losses[-2],
-            min_profit_loss == profit_losses[0] and profit_losses[0] < profit_losses[1],
-        ]):
-            self.max_loss = float('-inf')
+        if min_profit_loss == profit_losses[-1] and profit_losses[-1] < profit_losses[-2]:
+            self.max_loss = float('inf')
+        elif min_profit_loss == profit_losses[0] and profit_losses[0] < profit_losses[1]:
+            self.max_loss = self.options[0].strike * 100
         else:
-            self.max_loss = min_profit_loss
+            self.max_loss = abs(min_profit_loss)
 
-    def _get_collateral(self, sorted_options: List['Option']):
+    def _get_collateral(self):
         puts_collateral = 0.0
         calls_collateral = 0.0
-        for option in sorted_options:
+        for option in self.options:
             if option.is_call:
                 calls_collateral += option.get_collateral() if option.is_long else -option.get_collateral()
             else:
@@ -321,13 +390,25 @@ class Strategy:
         return round(self.max_profit / self.collateral * 100, 2)
 
     def __repr__(self):
-        stakes = ''
-        if self.max_profit > 0.0:
-            stakes = f' with max profit of ${self.max_profit} and max loss of ${abs(self.max_loss)} and max return on collateral of {self.max_return_on_collateral_percent}%'
-        collateral = ''
-        if self.collateral > 0.0:
-            collateral = f' requiring a collateral of ${self.collateral}'
-        return f'<Strategy "{self.name}"{stakes}{collateral}'
+        return f'<Strategy "{self.name}">'
+
+    def report(self):
+        max_profit = self.max_profit
+        if max_profit == float('inf'):
+            max_profit = 'inf'
+        max_loss = self.max_loss
+        if max_loss == float('-inf'):
+            max_loss = '-inf'
+        return {
+            'name': self.name,
+            'start_time': self.start_time.isoformat(),
+            'max_profit': max_profit,
+            'max_loss': max_loss,
+            'collateral': self.collateral,
+            'options': [
+                option.report() for option in self.options
+            ]
+        }
 
 
 class Trade:
@@ -337,12 +418,26 @@ class Trade:
         self.ticker: str = ticker
         self.expiration_date: date = expiration_date
 
-    # TODO
     def __repr__(self):
-        strategies = [
-            f'{strategy} @ {strategy.start_time}' for strategy in self.strategies
-        ]
-        return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}\nStrategies: {strategies}\nProfit: ${round(self.profit, 2)}\nWin: {self.is_win}\nReturn on Collateral: {self.return_on_collateral_percent}%>'
+        return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}>'
+
+    def report(self):
+        stats = {}
+        if self.is_closed:
+            stats = {
+                'profit': self.profit,
+                'win': self.is_win,
+                'return_on_collateral_percent': self.return_on_collateral_percent,
+                'duration': str(self.duration),
+            }
+        return {
+            'ticker': self.ticker,
+            'expiration_date': self.expiration_date.strftime('%Y-%m-%d'),
+            'strategies': [
+                strategy.report() for strategy in self.strategies
+            ],
+            **stats,
+        }
 
     @property
     def options(self) -> List['Option']:
@@ -356,7 +451,7 @@ class Trade:
         if date.today() > self.expiration_date:
             return True
         if get_open_options(self.options):
-            return True
+            return False
         return False
 
     @property
@@ -462,13 +557,14 @@ for root, dirs, filenames in os.walk('trade_events_data'):
                     )
                     account.execute_trade_event(trade_event)
 
+account.report()
 # report statistics
-print(f'{len(account.trades)=}')
-print(f'{account.profit=}')
-print(f'{account.win_percent=}')
-print(f'{account.average_profit=}')
-print(f'{str(account.average_trade_duration)=}')
-print(f'{account.trades.values()=}')
+# print(f'{len(account.trades)=}')
+# print(f'{account.profit=}')
+# print(f'{account.win_percent=}')
+# print(f'{account.average_profit=}')
+# print(f'{str(account.average_trade_duration)=}')
+# print(f'{account.trades.values()=}')
 
 
 
