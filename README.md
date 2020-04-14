@@ -60,5 +60,5 @@ Expirations, exercises, and assignments are supported.
 Events can be in one large file or spread across several files.
 
 Finally, run `python3.8 trading_journal.py` to parse the `.txt` files into `.json` files (found in `/trade_events_data`)
-and report trade data in the console.
+and report trade data into `.json` output reports in `/reports`.
 
