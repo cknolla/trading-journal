@@ -153,7 +153,7 @@ def convert_keys(dictionary: dict, from_case: Case, to_case: Case):
     return converted_dict
 
 
-def dt_str(dt_object: datetime, format_='%Y-%m-%dT%H:%M:%S') -> str:
+def dt_str(dt_object, format_='%Y-%m-%dT%H:%M:%S') -> str:
     """
     Converts python datetime object into datetime string
     """

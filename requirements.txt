@@ -1,0 +1,14 @@
+certifi==2020.4.5.1
+chardet==3.0.4
+idna==2.9
+multitasking==0.0.9
+numpy==1.18.2
+pandas==1.0.3
+python-dateutil==2.8.1
+python-dotenv==0.12.0
+pytz==2019.3
+requests==2.23.0
+robin-stocks==1.0.0.6
+six==1.14.0
+urllib3==1.25.8
+yfinance==0.1.54

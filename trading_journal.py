@@ -5,8 +5,14 @@ import re
 from datetime import date, datetime, timedelta
 from typing import List
 
+import robin_stocks
+import yfinance
+from dotenv import load_dotenv
+
 from robinhood_trade_event_parser import parse_robinhood_file
 from string_conversions import Case, convert_case, str_dt, convert_keys
+
+load_dotenv('.env')
 
 
 def create_report(report: dict):
@@ -37,6 +43,36 @@ def process_trade_events_data():
                             }
                         )
                         account.execute_trade_event(trade_event)
+
+
+def get_robinhood_data():
+    login = robin_stocks.login(username=os.getenv('USERNAME'), password=os.getenv('PASSWORD'))
+    all_option_orders = robin_stocks.orders.get_all_option_orders()
+    for order in all_option_orders:
+        if order['state'] == 'filled':
+            for leg in order['legs']:
+                instrument_data = robin_stocks.helper.request_get(leg['option'])
+                expiration_date = str_dt(instrument_data['expiration_date'], '%Y-%m-%d').date()
+                option_prices = []
+                for execution in leg['executions']:
+                    option_prices.extend([float(execution['price']) for quantity in range(int(float(execution['quantity'])))])
+                account.execute_trade_event(
+                    TradeEvent(
+                        ticker=order['chain_symbol'],
+                        expiration_date=expiration_date,
+                        execution_time=str_dt(order['created_at'][:-8]),
+                        options=[
+                            Option(
+                                ticker=order['chain_symbol'],
+                                expiration_date=expiration_date,
+                                strike=float(instrument_data['strike_price']),
+                                price=price,
+                                is_call=True if instrument_data['type'] == 'call' else False,
+                                is_long=True if leg['side'] == 'buy' else False,
+                            ) for price in option_prices
+                        ]
+                    )
+                )
 
 
 def get_open_options(options: List['Option']) -> List['Option']:
@@ -85,6 +121,8 @@ class Account:
     def report(self):
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
+        for trade in all_trades:
+            trade.resolve_expired_options()
         closed_trades = list(filter(lambda trade: trade.is_closed, all_trades))
         open_trades = [trade for trade in all_trades if trade not in closed_trades]
         stats = {
@@ -454,6 +492,39 @@ class Trade:
             **stats,
         }
 
+    def resolve_expired_options(self):
+        # if datetime.now() > datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0) and get_open_options(self.options):
+        open_options = get_open_options(self.options)
+        if date.today() > self.expiration_date and open_options:
+            next_day = self.expiration_date + timedelta(days=1)
+            closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat())['Close'][self.expiration_date.isoformat()]
+            print(f'{self.ticker=} {closing_price=}')
+            closing_options = []
+            for option in open_options:
+                price = 0.0
+                if option.is_call and option.strike < closing_price:
+                    price = round(closing_price - option.strike, 2)
+                elif not option.is_call and option.strike > closing_price:
+                    price = round(option.strike - closing_price, 2)
+                closing_options.append(
+                    Option(
+                        ticker=self.ticker,
+                        expiration_date=self.expiration_date,
+                        strike=option.strike,
+                        is_call=option.is_call,
+                        is_long=not option.is_long,
+                        price=price,
+                    )
+                )
+            self.add_event(
+                TradeEvent(
+                    ticker=self.ticker,
+                    expiration_date=self.expiration_date,
+                    execution_time=datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0),
+                    options=closing_options,
+                )
+            )
+
     @property
     def strategies(self) -> List['Strategy']:
         return [
@@ -535,27 +606,27 @@ class Trade:
 class TradeEvent:
     def __init__(
             self,
-            execution_time: str,
+            execution_time: datetime,
             ticker: str,
-            expiration_date: str,
+            expiration_date: date,
             options,
     ):
-        self.execution_time = str_dt(execution_time)
+        self.execution_time = execution_time
         self.ticker = ticker.upper()
-        self.expiration_date = str_dt(expiration_date, '%Y-%m-%d').date()
-        self.options = []
-        for option_data in options:
-            for count in range(option_data['quantity']):
-                self.options.append(
-                    Option(
-                        ticker=self.ticker,
-                        expiration_date=self.expiration_date,
-                        **{
-                            convert_case(key, Case.CAMEL, Case.SNAKE): value
-                            for key, value in option_data.items()
-                        }
-                    )
-                )
+        self.expiration_date = expiration_date
+        self.options = options
+        # for option_data in options:
+        #     for count in range(option_data['quantity']):
+        #         self.options.append(
+        #             Option(
+        #                 ticker=self.ticker,
+        #                 expiration_date=self.expiration_date,
+        #                 **{
+        #                     convert_case(key, Case.CAMEL, Case.SNAKE): value
+        #                     for key, value in option_data.items()
+        #                 }
+        #             )
+        #         )
         self.options = sort_options(self.options)
         self.strategy = None
         self.trade = None
@@ -572,10 +643,7 @@ class TradeEvent:
 
 if __name__ == '__main__':
     account = Account()
-    parse_raw_data()
-    process_trade_events_data()
+    get_robinhood_data()
+    # parse_raw_data()
+    # process_trade_events_data()
     account.report()
-
-
-
-
