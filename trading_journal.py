@@ -4,6 +4,7 @@ import os
 import re
 from datetime import date, datetime, timedelta
 from typing import List
+import logging
 
 import robin_stocks
 import yfinance
@@ -16,7 +17,9 @@ load_dotenv('.env')
 
 
 def create_report(report: dict):
-    with open(os.path.join('reports', datetime.now().isoformat() + '.json'), 'w') as output_file:
+    filepath = os.path.join('reports', datetime.now().isoformat() + '.json')
+    logging.info(f'Generating output file {filepath}')
+    with open(filepath, 'w') as output_file:
         json.dump(convert_keys(report, Case.SNAKE, Case.CAMEL), output_file, indent=2)
 
 
@@ -46,7 +49,9 @@ def process_trade_events_data():
 
 
 def get_robinhood_data():
+    logging.info(f'Logging into Robinhood...')
     login = robin_stocks.login(username=os.getenv('USERNAME'), password=os.getenv('PASSWORD'))
+    logging.info(f'Fetching options orders...')
     all_option_orders = robin_stocks.orders.get_all_option_orders()
     for order in all_option_orders:
         if order['state'] == 'filled':
@@ -119,6 +124,7 @@ class Account:
         trade.add_event(trade_event)
 
     def report(self):
+        logging.info(f'Building output report...')
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
         for trade in all_trades:
@@ -175,6 +181,7 @@ class Option:
         self.is_call = is_call
         self.is_long = is_long
         self.expiration_date = expiration_date
+        logging.info(f'Adding option {self}')
 
     def __repr__(self):
         return self.__str__()
@@ -240,14 +247,14 @@ class Strategy:
         if len(options) == 2:
             if all([option.is_call for option in options]):
                 if options[0].is_long and not options[1].is_long:
-                    self.name = 'Call Debit Spread'
+                    self.name = 'Long Call Spread'
                 if not options[0].is_long and options[1].is_long:
-                    self.name = 'Call Credit Spread'
+                    self.name = 'Short Call Spread'
             elif all([not option.is_call for option in options]):
                 if options[0].is_long and not options[1].is_long:
-                    self.name = 'Put Credit Spread'
+                    self.name = 'Short Put Spread'
                 if not options[0].is_long and options[1].is_long:
-                    self.name = 'Put Debit Spread'
+                    self.name = 'Long Put Spread'
             else:
                 if all([
                     not options[0].is_call,
@@ -256,7 +263,7 @@ class Strategy:
                     not options[1].is_long,
                     options[1].strike > options[0].strike,
                 ]):
-                    self.name = 'Protective Collar'
+                    self.name = 'Collar'
                 elif all([
                     options[0].is_call,
                     options[0].is_long,
@@ -497,8 +504,9 @@ class Trade:
         open_options = get_open_options(self.options)
         if date.today() > self.expiration_date and open_options:
             next_day = self.expiration_date + timedelta(days=1)
-            closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat())['Close'][self.expiration_date.isoformat()]
-            print(f'{self.ticker=} {closing_price=}')
+            logging.info(f'Fetching closing price of {self.ticker} on {self.expiration_date} to resolve expired options...')
+            closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][self.expiration_date.isoformat()]
+            # print(f'{self.ticker=} {closing_price=}')
             closing_options = []
             for option in open_options:
                 price = 0.0
@@ -642,6 +650,7 @@ class TradeEvent:
 
 
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     account = Account()
     get_robinhood_data()
     # parse_raw_data()
