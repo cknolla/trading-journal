@@ -51,8 +51,10 @@ def process_trade_events_data():
 def get_robinhood_data():
     logging.info(f'Logging into Robinhood...')
     login = robin_stocks.login(username=os.getenv('USERNAME'), password=os.getenv('PASSWORD'))
+    logging.debug(login)
     logging.info(f'Fetching options orders...')
-    all_option_orders = robin_stocks.orders.get_all_option_orders()
+    all_option_orders = reversed(robin_stocks.orders.get_all_option_orders())
+    logging.debug(all_option_orders)
     for order in all_option_orders:
         if order['state'] == 'filled':
             for leg in order['legs']:
@@ -113,8 +115,8 @@ def sort_options(options: List['Option']) -> List['Option']:
 
 class Account:
     def __init__(self):
-        self.trades = {}
-        self.shares = []
+        self.trades = {}  # stored as (ticker, expiration_date): trade
+        self.shares = {}  # stored as ticker: [Share]
 
     def execute_trade_event(self, trade_event: 'TradeEvent'):
         trade = self.trades.get((trade_event.ticker, trade_event.expiration_date))
@@ -208,6 +210,42 @@ class Option:
 
     def get_collateral(self):
         return self.strike * 100
+
+
+class Share:
+    def __init__(
+            self,
+            ticker: str,
+            open_price: float,
+            open_time: datetime,
+            is_long: bool,
+    ):
+        self.ticker = ticker
+        self.open_price = open_price
+        self.open_time = open_time
+        self.is_long = is_long
+        self.close_price = None
+        self.close_time = None
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __str__(self):
+        if self.is_closed:
+            closed = f''
+        return f'<Share {self.ticker} {"+" if self.is_long else "-"}{self.open_price}>'
+
+    def close(
+            self,
+            close_price: float,
+            close_time: datetime,
+    ):
+        self.close_price = close_price
+        self.close_time = close_time
+
+    @property
+    def is_closed(self) -> bool:
+        return self.close_time is not None
 
 
 class Strategy:
@@ -505,7 +543,8 @@ class Trade:
         if date.today() > self.expiration_date and open_options:
             next_day = self.expiration_date + timedelta(days=1)
             logging.info(f'Fetching closing price of {self.ticker} on {self.expiration_date} to resolve expired options...')
-            closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][self.expiration_date.isoformat()]
+            closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][
+                self.expiration_date.isoformat()]
             # print(f'{self.ticker=} {closing_price=}')
             closing_options = []
             for option in open_options:
