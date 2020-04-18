@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import itertools
 import json
 import os
 import re
@@ -8,11 +9,9 @@ import logging
 
 import pytz
 import robin_stocks
-import tzlocal
 import yfinance
 from dotenv import load_dotenv
 
-from robinhood_trade_event_parser import parse_robinhood_file
 from string_conversions import Case, convert_case, str_dt, convert_keys
 
 load_dotenv('.env')
@@ -25,34 +24,34 @@ def create_report(report: dict):
         json.dump(convert_keys(report, Case.SNAKE, Case.CAMEL), output_file, indent=2)
 
 
-def parse_raw_data():
-    # parse all raw data into ingestible json files
-    for root, dirs, filenames in os.walk('raw_data'):
-        for filename in filenames:
-            if re.search(r'\.txt$', filename, re.IGNORECASE):
-                parse_robinhood_file(os.path.join(root, filename))
-
-
-def process_trade_events_data():
-    # process all json files in trade events folder
-    for root, dirs, filenames in os.walk('trade_events_data'):
-        for filename in filenames:
-            if re.search(r'\.json$', filename, re.IGNORECASE):
-                with open(os.path.join(root, filename)) as data_file:
-                    events_data = json.load(data_file)
-                    for trade_event_data in events_data:
-                        trade_event = TradeEvent(
-                            **{
-                                convert_case(key, Case.CAMEL, Case.SNAKE): value
-                                for key, value in trade_event_data.items()
-                            }
-                        )
-                        account.execute_trade_event(trade_event)
+# def parse_raw_data():
+#     # parse all raw data into ingestible json files
+#     for root, dirs, filenames in os.walk('raw_data'):
+#         for filename in filenames:
+#             if re.search(r'\.txt$', filename, re.IGNORECASE):
+#                 parse_robinhood_file(os.path.join(root, filename))
+#
+#
+# def process_trade_events_data():
+#     # process all json files in trade events folder
+#     for root, dirs, filenames in os.walk('trade_events_data'):
+#         for filename in filenames:
+#             if re.search(r'\.json$', filename, re.IGNORECASE):
+#                 with open(os.path.join(root, filename)) as data_file:
+#                     events_data = json.load(data_file)
+#                     for trade_event_data in events_data:
+#                         trade_event = TradeEvent(
+#                             **{
+#                                 convert_case(key, Case.CAMEL, Case.SNAKE): value
+#                                 for key, value in trade_event_data.items()
+#                             }
+#                         )
+#                         account.execute_trade_event(trade_event)
 
 
 def get_robinhood_data():
     logging.info(f'Logging into Robinhood...')
-    login = robin_stocks.login(username=os.getenv('USERNAME'), password=os.getenv('PASSWORD'))
+    login = robin_stocks.login(username=os.getenv('TJ_USERNAME'), password=os.getenv('TJ_PASSWORD'))
     logging.debug(login)
     logging.info(f'Fetching options orders...')
     all_option_orders = reversed(robin_stocks.orders.get_all_option_orders())
@@ -107,6 +106,31 @@ def get_open_options(options: List['Option']) -> List['Option']:
         for strike_options in strikes.values():
             open_options.extend(strike_options)
     return open_options
+
+
+def get_option_matches(options: List['Option']) -> tuple:
+    matched_options = {
+        'call': {},
+        'put': {},
+    }
+    unmatched_options = {
+        'call': {},
+        'put': {},
+    }
+    for option in options:
+        option_type = 'call' if option.is_call else 'put'
+        unmatched_options[option_type].setdefault(option.strike, []).append(option)
+        # if inventory[option_type].get(option.strike) is None:
+        #     inventory[option_type][option.strike] = []
+        for same_strike_option in filter(lambda op: op is not option, unmatched_options[option_type][option.strike]):
+            if option.is_long != same_strike_option.is_long:
+                unmatched_options[option_type][option.strike].remove(same_strike_option)
+                matched_options[option_type].setdefault(option.strike, []).extend([
+                    option,
+                    same_strike_option,
+                ])
+                break
+    return matched_options, unmatched_options
 
 
 def sort_options(options: List['Option']) -> List['Option']:
@@ -621,12 +645,20 @@ class Trade:
         if not self.is_closed:
             raise ValueError('Cannot get profit of unclosed trade')
         collaterals = []
+        # previous_event = None
         for index, event in enumerate(self.trade_events):
+            # if previous_event is not None:
+            #     collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
+            # if event.strategy.collateral != 0.0:
+            #     previous_event = event
             try:
                 close_time = self.trade_events[index + 1].execution_time
             except IndexError:
                 break
-            collaterals.append(event.strategy.collateral * ((close_time - event.strategy.trade_event.execution_time) / self.duration))
+            if event.strategy.collateral > 0.0:
+                # TODO: this really should be realized_profit/previous_collateral
+                collaterals.append(event.strategy.collateral * ((close_time - event.strategy.trade_event.execution_time) / self.duration))
+        # collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
         average_collateral = sum(collaterals) / len(collaterals)
         return round((self.profit / average_collateral) * 100, 2)
 
@@ -655,6 +687,17 @@ class Trade:
         for event in self.trade_events:
             options.extend(event.options)
             event.strategy = Strategy(event, get_open_options(options))
+            # self.strategies.append(Strategy(get_open_options(options), event.time))
+        # options = []
+        # # self.strategies = []
+        # # previous_open_options = []
+        # for event in self.trade_events:
+        #     options.extend(event.options)
+        #     matched_options, unmatched_options = get_option_matches(options)
+        #     open_options = list(itertools.chain(*([option for option in strike.values()] for strike in unmatched_options.values()))) #TODO: fix this garbage
+        #     event.strategy = Strategy(event, open_options)
+        #
+        #     previous_open_options = open_options
             # self.strategies.append(Strategy(get_open_options(options), event.time))
 
 
