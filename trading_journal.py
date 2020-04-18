@@ -18,7 +18,7 @@ load_dotenv('.env')
 
 
 def create_report(report: dict):
-    filepath = os.path.join('reports', datetime.now().isoformat() + '.json')
+    filepath = os.path.join('reports', datetime.now().isoformat().replace(':', '-') + '.json')
     logging.info(f'Generating output file {filepath}')
     with open(filepath, 'w') as output_file:
         json.dump(convert_keys(report, Case.SNAKE, Case.CAMEL), output_file, indent=2)
