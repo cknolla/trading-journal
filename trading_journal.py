@@ -6,7 +6,9 @@ from datetime import date, datetime, timedelta
 from typing import List
 import logging
 
+import pytz
 import robin_stocks
+import tzlocal
 import yfinance
 from dotenv import load_dotenv
 
@@ -538,13 +540,14 @@ class Trade:
         }
 
     def resolve_expired_options(self):
-        # if datetime.now() > datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0) and get_open_options(self.options):
         open_options = get_open_options(self.options)
-        if date.today() > self.expiration_date and open_options:
+        if self.is_expired and open_options:
             next_day = self.expiration_date + timedelta(days=1)
             logging.info(f'Fetching closing price of {self.ticker} on {self.expiration_date} to resolve expired options...')
             closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][
                 self.expiration_date.isoformat()]
+            if hasattr(closing_price, 'array'):
+                closing_price = closing_price.array[0]
             # print(f'{self.ticker=} {closing_price=}')
             closing_options = []
             for option in open_options:
@@ -587,9 +590,14 @@ class Trade:
 
     @property
     def is_closed(self) -> bool:
-        if date.today() > self.expiration_date:
+        if self.is_expired or not get_open_options(self.options):
             return True
-        if not get_open_options(self.options):
+        return False
+
+    @property
+    def is_expired(self) -> bool:
+        closing_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0, tzinfo=pytz.timezone('US/Eastern'))
+        if datetime.now(pytz.timezone('US/Eastern')) > closing_time:
             return True
         return False
 
