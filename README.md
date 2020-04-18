@@ -16,8 +16,8 @@ pip install -r requirements.txt
 Create a file called `.env` within the top-level `trading-journal` directory. Within it, add two variables:
 Your Robinhood username (email) and password:
 ```.env
-USERNAME=user@email.com
-PASSWORD=password
+TJ_USERNAME=user@email.com
+TJ_PASSWORD=password
 ```
 These will be loaded from the OS environment to avoid including them in the code. 
 The `.env` is automatically ignored in `.gitignore`

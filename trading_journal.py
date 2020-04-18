@@ -188,7 +188,7 @@ class Account:
     def get_average_trade_duration(self, trades=None) -> timedelta:
         if trades is None:
             trades = self.trades.values()
-        total_duration = sum([trade.duration for trade in trades], start=timedelta(0))
+        total_duration = sum([trade.duration for trade in trades], timedelta(0))
         return total_duration / len(trades)
 
 
