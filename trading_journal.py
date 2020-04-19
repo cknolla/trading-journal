@@ -211,6 +211,9 @@ class ClosingPriceCache(Cache):
 
 class TickerEventCache(Cache):
     def __init__(self):
+        """
+        An in-memory cache to avoid several event lookups for the same ticker
+        """
         super().__init__('')
 
     def _get(self, item):
@@ -252,6 +255,7 @@ class Account:
             'total_trade_profit': self.get_total_trade_profit(closed_trades),
             'average_trade_profit': self.get_average_trade_profit(closed_trades),
             'trade_profit_by_ticker': self.get_trade_profit_by_ticker(closed_trades),
+            'total_trade_count': len(all_trades),
             'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
@@ -729,8 +733,8 @@ class Trade:
             stats = {
                 'net_profit': self.net_profit,
                 'exercise_profit': self.exercise_profit,
-                'option_profit': self.premium_profit,
-                'option_profit_by_trade_event': self.premium_profit_by_event,
+                'premium_profit': self.premium_profit,
+                'premium_profit_by_trade_event': self.premium_profit_by_event,
                 'win': self.is_win,
                 'weighted_return_on_collateral_percent': self.weighted_return_on_collateral,
                 'return_on_collateral_by_event': self.return_on_collateral_by_event,
