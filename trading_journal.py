@@ -175,6 +175,13 @@ class Cache:
             pickle.dump(self.cache, file)
 
     def get(self, item):
+        obj = self.cache.get(item)
+        if obj is not None:
+            return obj
+        self.cache[item] = self._get(item)
+        return self.cache[item]
+
+    def _get(self, item):
         raise NotImplementedError
 
 
@@ -182,30 +189,21 @@ class InstrumentCache(Cache):
     def __init__(self):
         super().__init__('.instrument_cache')
 
-    def get(self, item):
-        instrument = self.cache.get(item)
-        if instrument is not None:
-            return instrument
-        instrument = robin_stocks.helper.request_get(item)
-        self.cache[item] = instrument
-        return instrument
+    def _get(self, item):
+        return robin_stocks.helper.request_get(item)
 
 
 class ClosingPriceCache(Cache):
     def __init__(self):
         super().__init__('.closing_price_cache')
 
-    def get(self, item):
-        closing_price = self.cache.get(item)
-        if closing_price is not None:
-            return closing_price
+    def _get(self, item):
         ticker, expiration_date = item
         next_day = expiration_date + timedelta(days=1)
         logging.info(f'Fetching closing price of {ticker} on {expiration_date}...')
         closing_price = yfinance.download(ticker, start=expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][expiration_date.isoformat()]
         if hasattr(closing_price, 'array'):
             closing_price = closing_price.array[0]
-        self.cache[item] = closing_price
         return closing_price
 
 
@@ -231,9 +229,11 @@ class Account:
         closed_trades = list(filter(lambda trade: trade.is_closed, all_trades))
         open_trades = [trade for trade in all_trades if trade not in closed_trades]
         stats = {
-            'total_profit': self.get_total_option_profit(closed_trades) + self.get_total_share_profit(),
+            'total_realized_profit': self.get_total_option_profit(closed_trades) + self.get_total_share_profit(),
+            'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
             'total_option_profit': self.get_total_option_net_profit(closed_trades),
+            'option_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
             'average_option_profit': self.get_average_option_net_profit(closed_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
@@ -255,6 +255,13 @@ class Account:
             trades = self.trades.values()
         return round(sum(trade.total_profit for trade in trades), 2)
 
+    def get_option_net_profit_by_ticker(self, trades=None) -> dict:
+        profits_by_ticker = {}
+        for trade in trades:
+            profits_by_ticker.setdefault(trade.ticker, 0)
+            profits_by_ticker[trade.ticker] += trade.total_profit
+        return profits_by_ticker
+
     def get_average_option_net_profit(self, trades=None) -> float:
         if trades is None:
             trades = self.trades.values()
@@ -272,13 +279,13 @@ class Account:
         total_duration = sum([trade.duration for trade in trades], timedelta(0))
         return total_duration / len(trades)
 
-    def get_share_profit_by_ticker(self):
+    def get_share_profit_by_ticker(self) -> dict:
         results = {}
         for ticker, shares in self.closed_shares.items():
             results[ticker] = sum(share.profit for share in shares)
         return results
 
-    def get_total_share_profit(self):
+    def get_total_share_profit(self) -> float:
         total_profit = 0.0
         for profit in self.get_share_profit_by_ticker().values():
             total_profit += profit
