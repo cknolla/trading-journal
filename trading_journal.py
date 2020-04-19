@@ -690,7 +690,7 @@ class Trade:
         self.ticker: str = ticker
         self.expiration_date: date = expiration_date
         self.account = account
-        self.exercise_value = 0.0
+        self.exercise_profit = 0.0
         self.underlying_price_at_expiration = None
 
     def __repr__(self):
@@ -700,11 +700,13 @@ class Trade:
         stats = {}
         if self.is_closed:
             stats = {
-                'exercise_value': self.exercise_value,
-                'profit': self.total_profit,
-                'realized_option_profit_by_trade_event': self.option_profit_by_event,
+                'total_profit': self.total_profit,
+                'exercise_profit': self.exercise_profit,
+                'option_profit': self.option_profit,
+                'option_profit_by_trade_event': self.option_profit_by_event,
                 'win': self.is_win,
-                'return_on_collateral_percent': self.return_on_collateral_percent,
+                'weighted_return_on_collateral_percent': self.weighted_return_on_collateral,
+                'return_on_collateral_by_event': self.return_on_collateral_by_event,
                 'duration': str(self.duration),
             }
         return {
@@ -733,26 +735,26 @@ class Trade:
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
                     ])
-                    self.exercise_value += (closing_price - option.strike) * 100
+                    self.exercise_profit += (closing_price - option.strike) * 100
                     # price = round(closing_price - option.strike, 2)
                 elif not option.is_call and option.is_long and option.strike > closing_price:
                     logging.info(f'Exercising -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
                     ])
-                    self.exercise_value += (option.strike - closing_price) * 100
+                    self.exercise_profit += (option.strike - closing_price) * 100
                 elif option.is_call and not option.is_long and option.strike < closing_price:
                     logging.info(f'Assigned -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
                     ])
-                    self.exercise_value += (option.strike - closing_price) * 100
+                    self.exercise_profit += (option.strike - closing_price) * 100
                 elif not option.is_call and not option.is_long and option.strike > closing_price:
                     logging.info(f'Assigned +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
                     ])
-                    self.exercise_value += (closing_price - option.strike) * 100
+                    self.exercise_profit += (closing_price - option.strike) * 100
                     # price = round(option.strike - closing_price, 2)
                 closing_options.append(
                     Option(
@@ -803,7 +805,7 @@ class Trade:
     @property
     def total_profit(self) -> float:
         profit = self.option_profit
-        profit += self.exercise_value
+        profit += self.exercise_profit
         return round(profit, 2)
 
     @property
@@ -836,32 +838,61 @@ class Trade:
         return strategy_profits
 
     @property
+    def return_on_collateral_by_event(self) -> dict:
+        if not self.is_closed:
+            raise ValueError('Cannot get RoC of unclosed trade')
+        event_profits = list(self.option_profit_by_event.values())
+        event_rocs = {}
+        for index, event in enumerate(self.trade_events):
+            try:
+                roc = event_profits[index + 1] / event.strategy.collateral * 100
+            except (IndexError, ZeroDivisionError):
+                roc = 0.0
+            event_rocs[f'{event.strategy.name} at {event.execution_time}'] = round(roc, 2)
+        return event_rocs
+
+    @property
+    def weighted_return_on_collateral(self):
+        if not self.is_closed:
+            raise ValueError('Cannot get RoC of unclosed trade')
+        event_rocs = self.return_on_collateral_by_event
+        rocs = []
+        for event in self.trade_events:
+            if event.strategy.collateral == 0.0 or event.execution_time == event.end_time:
+                continue
+            roc = event_rocs[f'{event.strategy.name} at {event.execution_time}']
+            roc *= event.duration / self.duration
+            rocs.append(roc)
+        average_roc = sum(rocs) / len(rocs)
+        return round(average_roc, 2)
+
+    @property
     def is_win(self) -> bool:
         if self.total_profit >= 0:
             return True
         return False
 
-    @property
-    def return_on_collateral_percent(self) -> float:
-        if not self.is_closed:
-            raise ValueError('Cannot get profit of unclosed trade')
-        collaterals = []
-        # previous_event = None
-        for index, event in enumerate(self.trade_events):
-            # if previous_event is not None:
-            #     collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
-            # if event.strategy.collateral != 0.0:
-            #     previous_event = event
-            # try:
-            #     close_time = self.trade_events[index + 1].execution_time
-            # except IndexError:
-            #     break
-            if event.strategy.collateral > 0.0:
-                # TODO: this really should be realized_profit/previous_collateral
-                collaterals.append(event.strategy.collateral * ((event.end_time - event.execution_time) / self.duration))
-        # collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
-        average_collateral = sum(collaterals) / len(collaterals)
-        return round((self.total_profit / average_collateral) * 100, 2)
+    # @property
+    # def return_on_collateral_percent(self) -> float:
+    #     if not self.is_closed:
+    #         raise ValueError('Cannot get profit of unclosed trade')
+    #     collaterals = []
+    #     # previous_event = None
+    #     for index, event in enumerate(self.trade_events):
+    #         # if previous_event is not None:
+    #         #     collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
+    #         # if event.strategy.collateral != 0.0:
+    #         #     previous_event = event
+    #         # try:
+    #         #     close_time = self.trade_events[index + 1].execution_time
+    #         # except IndexError:
+    #         #     break
+    #         if event.strategy.collateral > 0.0:
+    #             # TODO: this really should be realized_profit/previous_collateral
+    #             collaterals.append(event.strategy.collateral * ((event.end_time - event.execution_time) / self.duration))
+    #     # collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
+    #     average_collateral = sum(collaterals) / len(collaterals)
+    #     return round((self.total_profit / average_collateral) * 100, 2)
 
     @property
     def duration(self) -> timedelta:
@@ -936,6 +967,12 @@ class TradeEvent:
                 option.report() for option in self.options
             ]
         }
+
+    @property
+    def duration(self) -> timedelta:
+        if self.end_time is None:
+            raise ValueError('Event has not ended')
+        return self.end_time - self.execution_time
 
 
 if __name__ == '__main__':
