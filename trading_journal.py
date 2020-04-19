@@ -239,9 +239,10 @@ class Account:
             'total_realized_profit': self.get_total_option_profit(closed_trades) + self.get_total_share_profit(),
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
-            'total_option_profit': self.get_total_option_net_profit(closed_trades),
-            'average_option_profit': self.get_average_option_net_profit(closed_trades),
-            'option_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
+            'total_option_net_profit': self.get_total_option_net_profit(closed_trades),
+            'average_option_net_profit': self.get_average_option_net_profit(closed_trades),
+            'total_option_profit': self.get_total_option_profit(closed_trades),
+            'option_net_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
             'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
@@ -261,13 +262,13 @@ class Account:
     def get_total_option_net_profit(self, trades=None) -> float:
         if trades is None:
             trades = self.trades.values()
-        return round(sum(trade.total_profit for trade in trades), 2)
+        return round(sum(trade.net_profit for trade in trades), 2)
 
     def get_option_net_profit_by_ticker(self, trades=None) -> dict:
         profits_by_ticker = {}
         for trade in trades:
             profits_by_ticker.setdefault(trade.ticker, 0)
-            profits_by_ticker[trade.ticker] += trade.total_profit
+            profits_by_ticker[trade.ticker] += trade.net_profit
         return profits_by_ticker
 
     def get_average_option_net_profit(self, trades=None) -> float:
@@ -710,7 +711,7 @@ class Trade:
         stats = {}
         if self.is_closed:
             stats = {
-                'total_profit': self.total_profit,
+                'net_profit': self.net_profit,
                 'exercise_profit': self.exercise_profit,
                 'option_profit': self.option_profit,
                 'option_profit_by_trade_event': self.option_profit_by_event,
@@ -828,7 +829,7 @@ class Trade:
         return False
 
     @property
-    def total_profit(self) -> float:
+    def net_profit(self) -> float:
         profit = self.option_profit
         profit += self.exercise_profit
         return round(profit, 2)
@@ -893,7 +894,7 @@ class Trade:
 
     @property
     def is_win(self) -> bool:
-        if self.total_profit >= 0:
+        if self.net_profit >= 0:
             return True
         return False
 
