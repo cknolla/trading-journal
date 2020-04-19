@@ -233,8 +233,9 @@ class Account:
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
             'total_option_profit': self.get_total_option_net_profit(closed_trades),
-            'option_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
             'average_option_profit': self.get_average_option_net_profit(closed_trades),
+            'option_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
+            'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
             'open_shares': {
@@ -278,6 +279,13 @@ class Account:
             trades = self.trades.values()
         total_duration = sum([trade.duration for trade in trades], timedelta(0))
         return total_duration / len(trades)
+
+    def get_trade_count_by_ticker(self, trades=None) -> dict:
+        trades_by_ticker = {}
+        for trade in trades:
+            trades_by_ticker.setdefault(trade.ticker, 0)
+            trades_by_ticker[trade.ticker] += 1
+        return trades_by_ticker
 
     def get_share_profit_by_ticker(self) -> dict:
         results = {}
