@@ -250,6 +250,9 @@ class Account:
             'total_realized_profit': self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit(),
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
+            'open_shares': {
+                ticker: len(shares) * (1 if shares and shares[0].is_long else -1) for ticker, shares in self.open_shares.items()
+            },
             'total_option_premium_profit': self.get_total_option_premium_profit(closed_trades),
             'option_premium_profit_by_ticker': self.get_option_premium_profit_by_ticker(closed_trades),
             'total_trade_profit': self.get_total_trade_profit(closed_trades),
@@ -259,9 +262,6 @@ class Account:
             'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
-            'open_shares': {
-                ticker: len(shares) * (1 if shares and shares[0].is_long else -1) for ticker, shares in self.open_shares.items()
-            },
             'closed_trades': [trade.report() for trade in closed_trades],
             'open_trades': [trade.report() for trade in open_trades],
         }
@@ -731,11 +731,11 @@ class Trade:
         stats = {}
         if self.is_closed:
             stats = {
+                'win': self.is_win,
                 'net_profit': self.net_profit,
                 'exercise_profit': self.exercise_profit,
                 'premium_profit': self.premium_profit,
                 'premium_profit_by_trade_event': self.premium_profit_by_event,
-                'win': self.is_win,
                 'weighted_return_on_collateral_percent': self.weighted_return_on_collateral,
                 'return_on_collateral_by_event': self.return_on_collateral_by_event,
                 'duration': str(self.duration),
@@ -744,10 +744,10 @@ class Trade:
             'ticker': self.ticker,
             'expiration_date': self.expiration_date.strftime('%Y-%m-%d'),
             'underlying_price_at_expiration': self.underlying_price_at_expiration,
+            **stats,
             'trade_events': [
                 event.report() for event in self.trade_events
             ],
-            **stats,
         }
 
     def resolve_events(self):
