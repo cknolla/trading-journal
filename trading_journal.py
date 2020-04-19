@@ -10,6 +10,7 @@ import pytz
 import robin_stocks
 import yfinance
 from dotenv import load_dotenv
+from dateutil import parser
 
 from string_conversions import Case, str_dt, convert_keys
 
@@ -22,6 +23,11 @@ def create_report(report: dict):
     with open(filepath, 'w') as output_file:
         json.dump(convert_keys(report, Case.SNAKE, Case.CAMEL), output_file, indent=2)
 
+
+def utc_to_eastern(dt_string: str) -> datetime:
+    utc_dt = parser.parse(dt_string)
+    eastern_dt = utc_dt.astimezone(pytz.timezone('US/Eastern'))
+    return eastern_dt
 
 
 def get_robinhood_data():
@@ -43,9 +49,10 @@ def get_robinhood_data():
                     TradeEvent(
                         ticker=order['chain_symbol'],
                         expiration_date=expiration_date,
-                        execution_time=str_dt(order['created_at'][:-8]),
+                        execution_time=utc_to_eastern(order['created_at']),
                         options=[
                             Option(
+                                id_=leg['option'],
                                 ticker=order['chain_symbol'],
                                 expiration_date=expiration_date,
                                 strike=float(instrument_data['strike_price']),
@@ -60,7 +67,7 @@ def get_robinhood_data():
     logging.debug(all_stock_orders)
     for order in all_stock_orders:
         ticker = instrument_cache.get(order['instrument'])['symbol']
-        execution_time = str_dt(order['last_transaction_at'][:-8])
+        execution_time = utc_to_eastern(order['last_transaction_at'])
         quantity = int(float(order['quantity']))
         is_long = True if order['side'] == 'buy' else False
         logging.info(f'Adding {"+" if is_long else "-"}{quantity} shares of {ticker}')
@@ -325,6 +332,7 @@ class Account:
 class Option:
     def __init__(
             self,
+            id_: str,
             ticker: str,
             strike: float,
             price: float,
@@ -333,6 +341,7 @@ class Option:
             expiration_date: date,
             **kwargs
     ):
+        self.id = id_
         self.ticker = ticker.upper()
         self.strike = strike
         self.price = price
@@ -692,6 +701,7 @@ class Trade:
         self.account = account
         self.exercise_profit = 0.0
         self.underlying_price_at_expiration = None
+        self.event_data = None
 
     def __repr__(self):
         return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}>'
@@ -723,41 +733,56 @@ class Trade:
         if not self.is_expired:
             return
         open_options = get_open_options(self.options)
-        execution_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0)
+        execution_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0, microsecond=0, tzinfo=pytz.timezone('US/Eastern'))
         closing_price = closing_price_cache.get((self.ticker, self.expiration_date))
         self.underlying_price_at_expiration = round(closing_price, 2)
         if self.is_expired and open_options:
+            option_ids = [option.id for option in open_options]
             closing_options = []
+            if self.event_data is None:
+                self.event_data = robin_stocks.get_events(self.ticker)
+            for event in self.event_data:
+                if event['option'] not in option_ids or event['state'] != 'confirmed' or event['type'] not in ('assignment', 'exercise'):
+                    continue
+                event_time = utc_to_eastern(event['created_at'])
+                for equity_component in event['equity_components']:
+                    price = float(equity_component['price'])
+                    is_long = True if equity_component['side'] == 'buy' else False
+                    quantity = int(float(equity_component['quantity']))
+                    self.account.add_shares([
+                        Share(self.ticker, open_price=price, open_time=event_time, is_long=is_long) for share in range(quantity)
+                    ])
+                    self.exercise_profit += price * quantity * (-1 if is_long else 1)
             for option in open_options:
-                # price = 0.0
-                if option.is_call and option.is_long and option.strike < closing_price:
-                    logging.info(f'Exercising +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                    self.account.add_shares([
-                        Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
-                    ])
-                    self.exercise_profit += (closing_price - option.strike) * 100
-                    # price = round(closing_price - option.strike, 2)
-                elif not option.is_call and option.is_long and option.strike > closing_price:
-                    logging.info(f'Exercising -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                    self.account.add_shares([
-                        Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
-                    ])
-                    self.exercise_profit += (option.strike - closing_price) * 100
-                elif option.is_call and not option.is_long and option.strike < closing_price:
-                    logging.info(f'Assigned -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                    self.account.add_shares([
-                        Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
-                    ])
-                    self.exercise_profit += (option.strike - closing_price) * 100
-                elif not option.is_call and not option.is_long and option.strike > closing_price:
-                    logging.info(f'Assigned +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                    self.account.add_shares([
-                        Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
-                    ])
-                    self.exercise_profit += (closing_price - option.strike) * 100
+                # if option.is_call and option.is_long and option.strike < closing_price:
+                #     logging.info(f'Exercising +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
+                #     self.account.add_shares([
+                #         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
+                #     ])
+                #     self.exercise_profit += (closing_price - option.strike) * 100
+                #     # price = round(closing_price - option.strike, 2)
+                # elif not option.is_call and option.is_long and option.strike > closing_price:
+                #     logging.info(f'Exercising -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
+                #     self.account.add_shares([
+                #         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
+                #     ])
+                #     self.exercise_profit += (option.strike - closing_price) * 100
+                # elif option.is_call and not option.is_long and option.strike < closing_price:
+                #     logging.info(f'Assigned -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
+                #     self.account.add_shares([
+                #         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
+                #     ])
+                #     self.exercise_profit += (option.strike - closing_price) * 100
+                # elif not option.is_call and not option.is_long and option.strike > closing_price:
+                #     logging.info(f'Assigned +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
+                #     self.account.add_shares([
+                #         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
+                #     ])
+                #     self.exercise_profit += (closing_price - option.strike) * 100
                     # price = round(option.strike - closing_price, 2)
                 closing_options.append(
                     Option(
+                        id_=option.id,
                         ticker=self.ticker,
                         expiration_date=self.expiration_date,
                         strike=option.strike,
