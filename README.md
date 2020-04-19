@@ -1,7 +1,7 @@
 Semi-automated options trading journal
 
 ## Requirements
-Python3.6
+Python3.6+
 
 ## Install
 ```

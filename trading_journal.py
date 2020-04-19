@@ -304,7 +304,7 @@ class Account:
         # is_long = shares[0].is_long
         self.open_shares.setdefault(ticker, [])
         self.closed_shares.setdefault(ticker, [])
-        logging.debug(f'Adding {"+" if shares[0].is_long else "-"}{len(shares)} shares of {ticker}')
+        logging.debug(f'Adding {"+" if shares[0].is_long else "-"}{len(shares)} shares of {ticker} @ ${shares[0].open_price}')
         index = 0
         if self.open_shares[ticker]:
             if self.open_shares[ticker][0].is_long != shares[0].is_long:
@@ -316,7 +316,7 @@ class Account:
                         self.open_shares[ticker].pop(0)
                     except IndexError:
                         break
-                index += 1
+                index += 1  # because slice below is inclusive, but exclusive is desired
         self.open_shares[ticker].extend(shares[index:])
         # FIFO sort
         self.open_shares[ticker].sort(key=lambda share: share.open_time)
@@ -691,6 +691,7 @@ class Trade:
         self.expiration_date: date = expiration_date
         self.account = account
         self.exercise_value = 0.0
+        self.underlying_price_at_expiration = None
 
     def __repr__(self):
         return f'<Trade {self.ticker} Expiring {str(self.expiration_date)}>'
@@ -699,7 +700,9 @@ class Trade:
         stats = {}
         if self.is_closed:
             stats = {
+                'exercise_value': self.exercise_value,
                 'profit': self.total_profit,
+                'realized_option_profit_by_trade_event': self.option_profit_by_event,
                 'win': self.is_win,
                 'return_on_collateral_percent': self.return_on_collateral_percent,
                 'duration': str(self.duration),
@@ -707,6 +710,7 @@ class Trade:
         return {
             'ticker': self.ticker,
             'expiration_date': self.expiration_date.strftime('%Y-%m-%d'),
+            'underlying_price_at_expiration': self.underlying_price_at_expiration,
             'trade_events': [
                 event.report() for event in self.trade_events
             ],
@@ -714,41 +718,37 @@ class Trade:
         }
 
     def resolve_expired_options(self):
+        if not self.is_expired:
+            return
         open_options = get_open_options(self.options)
         execution_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0)
+        closing_price = closing_price_cache.get((self.ticker, self.expiration_date))
+        self.underlying_price_at_expiration = round(closing_price, 2)
         if self.is_expired and open_options:
-            # next_day = self.expiration_date + timedelta(days=1)
-            # logging.info(f'Fetching closing price of {self.ticker} on {self.expiration_date} to resolve expired options...')
-            # closing_price = yfinance.download(self.ticker, start=self.expiration_date.isoformat(), end=next_day.isoformat(), progress=False)['Close'][
-            #     self.expiration_date.isoformat()]
-            # if hasattr(closing_price, 'array'):
-            #     closing_price = closing_price.array[0]
-            closing_price = closing_price_cache.get((self.ticker, self.expiration_date))
-            # print(f'{self.ticker=} {closing_price=}')
             closing_options = []
             for option in open_options:
                 # price = 0.0
                 if option.is_call and option.is_long and option.strike < closing_price:
-                    logging.info(f'Exercising +100 shares of {self.ticker} @ {option.strike} at {execution_time.isoformat()}')
+                    logging.info(f'Exercising +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
                     ])
                     self.exercise_value += (closing_price - option.strike) * 100
                     # price = round(closing_price - option.strike, 2)
                 elif not option.is_call and option.is_long and option.strike > closing_price:
-                    logging.info(f'Exercising -100 shares of {self.ticker} @ {option.strike} at {execution_time.isoformat()}')
+                    logging.info(f'Exercising -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
                     ])
                     self.exercise_value += (option.strike - closing_price) * 100
                 elif option.is_call and not option.is_long and option.strike < closing_price:
-                    logging.info(f'Assigned -100 shares of {self.ticker} @ {option.strike} at {execution_time.isoformat()}')
+                    logging.info(f'Assigned -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
                     ])
                     self.exercise_value += (option.strike - closing_price) * 100
                 elif not option.is_call and not option.is_long and option.strike > closing_price:
-                    logging.info(f'Assigned +100 shares of {self.ticker} @ {option.strike} at {execution_time.isoformat()}')
+                    logging.info(f'Assigned +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
                     self.account.add_shares([
                         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
                     ])
@@ -770,6 +770,7 @@ class Trade:
                     expiration_date=self.expiration_date,
                     execution_time=execution_time,
                     options=closing_options,
+                    end_time=execution_time,
                 )
             )
 
@@ -816,6 +817,25 @@ class Trade:
         return round(profit, 2)
 
     @property
+    def option_profit_by_event(self) -> dict:
+        if not self.is_closed:
+            raise ValueError('Cannot get profit of unclosed trade')
+        options = []
+        strategy_profits = {}
+        for event in self.trade_events:
+            # strategy_profits.setdefault(f'{strategy.name} at {strategy.trade_event.execution_time}', 0.0)
+            profit = 0.0
+            options.extend(event.options)
+            open_options = get_open_options(options)
+            closed_options = [option for option in options if option not in open_options]
+            for option in closed_options:
+                profit += -option.price if option.is_long else option.price
+                options.remove(option)
+            profit *= 100
+            strategy_profits[f'{event.strategy.name} at {event.execution_time}'] = round(profit, 2)
+        return strategy_profits
+
+    @property
     def is_win(self) -> bool:
         if self.total_profit >= 0:
             return True
@@ -832,13 +852,13 @@ class Trade:
             #     collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
             # if event.strategy.collateral != 0.0:
             #     previous_event = event
-            try:
-                close_time = self.trade_events[index + 1].execution_time
-            except IndexError:
-                break
+            # try:
+            #     close_time = self.trade_events[index + 1].execution_time
+            # except IndexError:
+            #     break
             if event.strategy.collateral > 0.0:
                 # TODO: this really should be realized_profit/previous_collateral
-                collaterals.append(event.strategy.collateral * ((close_time - event.strategy.trade_event.execution_time) / self.duration))
+                collaterals.append(event.strategy.collateral * ((event.end_time - event.execution_time) / self.duration))
         # collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
         average_collateral = sum(collaterals) / len(collaterals)
         return round((self.total_profit / average_collateral) * 100, 2)
@@ -865,9 +885,16 @@ class Trade:
         # trade_event.determine_strategy()
         options = []
         # self.strategies = []
+        previous_event = None
         for event in self.trade_events:
             options.extend(event.options)
             event.strategy = Strategy(event, get_open_options(options))
+            if previous_event:
+                previous_event.end_time = event.execution_time
+            if event.strategy.name == 'Close Position':
+                event.end_time = event.execution_time
+            previous_event = event
+
             # self.strategies.append(Strategy(get_open_options(options), event.time))
         # options = []
         # # self.strategies = []
@@ -888,31 +915,22 @@ class TradeEvent:
             execution_time: datetime,
             ticker: str,
             expiration_date: date,
-            options,
+            options: List['Option'],
+            end_time: datetime = None,
     ):
         self.execution_time = execution_time
         self.ticker = ticker.upper()
         self.expiration_date = expiration_date
         self.options = options
-        # for option_data in options:
-        #     for count in range(option_data['quantity']):
-        #         self.options.append(
-        #             Option(
-        #                 ticker=self.ticker,
-        #                 expiration_date=self.expiration_date,
-        #                 **{
-        #                     convert_case(key, Case.CAMEL, Case.SNAKE): value
-        #                     for key, value in option_data.items()
-        #                 }
-        #             )
-        #         )
         self.options = sort_options(self.options)
+        self.end_time = end_time
         self.strategy = None
         self.trade = None
 
     def report(self):
         return {
             'execution_time': self.execution_time.isoformat(),
+            'end_time': self.end_time.isoformat() if self.end_time else self.end_time,
             'strategy': self.strategy.report(),
             'options': [
                 option.report() for option in self.options
