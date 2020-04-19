@@ -232,14 +232,15 @@ class Account:
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
         for trade in all_trades:
+            trade.resolve_events()
             trade.resolve_expired_options()
         closed_trades = list(filter(lambda trade: trade.is_closed, all_trades))
         open_trades = [trade for trade in all_trades if trade not in closed_trades]
         stats = {
-            'total_realized_profit': self.get_total_option_profit(closed_trades) + self.get_total_share_profit(),
+            'total_realized_profit': self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit(),
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
-            'total_option_profit': self.get_total_option_profit(closed_trades),
+            'total_option_premium_profit': self.get_total_option_premium_profit(closed_trades),
             'total_option_net_profit': self.get_total_option_net_profit(closed_trades),
             'average_option_net_profit': self.get_average_option_net_profit(closed_trades),
             'option_net_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
@@ -254,10 +255,10 @@ class Account:
         }
         create_report(stats)
 
-    def get_total_option_profit(self, trades=None) -> float:
+    def get_total_option_premium_profit(self, trades=None) -> float:
         if trades is None:
             trades = self.trades.values()
-        return round(sum(trade.option_profit for trade in trades), 2)
+        return round(sum(trade.premium_profit for trade in trades), 2)
 
     def get_total_option_net_profit(self, trades=None) -> float:
         if trades is None:
@@ -713,8 +714,8 @@ class Trade:
             stats = {
                 'net_profit': self.net_profit,
                 'exercise_profit': self.exercise_profit,
-                'option_profit': self.option_profit,
-                'option_profit_by_trade_event': self.option_profit_by_event,
+                'option_profit': self.premium_profit,
+                'option_profit_by_trade_event': self.premium_profit_by_event,
                 'win': self.is_win,
                 'weighted_return_on_collateral_percent': self.weighted_return_on_collateral,
                 'return_on_collateral_by_event': self.return_on_collateral_by_event,
@@ -730,21 +731,17 @@ class Trade:
             **stats,
         }
 
-    def resolve_expired_options(self):
-        if not self.is_expired:
-            return
+    def resolve_events(self):
         open_options = get_open_options(self.options)
-        execution_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0, microsecond=0, tzinfo=pytz.timezone('US/Eastern'))
-        closing_price = closing_price_cache.get((self.ticker, self.expiration_date))
-        self.underlying_price_at_expiration = round(closing_price, 2)
-        if self.is_expired and open_options:
-            option_ids = [option.id for option in open_options]
-            closing_options = []
+        if open_options:
             if self.event_data is None:
                 self.event_data = robin_stocks.get_events(self.ticker)
+
+            option_ids = [option.id for option in open_options]
             for event in self.event_data:
                 if event['option'] not in option_ids or event['state'] != 'confirmed' or event['type'] not in ('assignment', 'exercise'):
                     continue
+                option = next((option for option in open_options if option.id == event['option']), None)
                 event_time = utc_to_eastern(event['created_at'])
                 for equity_component in event['equity_components']:
                     price = float(equity_component['price'])
@@ -754,33 +751,36 @@ class Trade:
                         Share(self.ticker, open_price=price, open_time=event_time, is_long=is_long) for share in range(quantity)
                     ])
                     self.exercise_profit += price * quantity * (-1 if is_long else 1)
+                self.add_event(
+                    TradeEvent(
+                        ticker=self.ticker,
+                        expiration_date=self.expiration_date,
+                        execution_time=event_time,
+                        options=[
+                            Option(
+                                id_=option.id,
+                                ticker=self.ticker,
+                                expiration_date=self.expiration_date,
+                                strike=option.strike,
+                                is_call=option.is_call,
+                                is_long=not option.is_long,
+                                price=0.0,
+                            )
+                        ],
+                        end_time=event_time,
+                    )
+                )
+
+    def resolve_expired_options(self):
+        if not self.is_expired:
+            return
+        open_options = get_open_options(self.options)
+        execution_time = datetime(year=self.expiration_date.year, month=self.expiration_date.month, day=self.expiration_date.day, hour=16, minute=0, second=0, microsecond=0, tzinfo=pytz.timezone('US/Eastern'))
+        closing_price = closing_price_cache.get((self.ticker, self.expiration_date))
+        self.underlying_price_at_expiration = round(closing_price, 2)
+        if self.is_expired and open_options:
+            closing_options = []
             for option in open_options:
-                # if option.is_call and option.is_long and option.strike < closing_price:
-                #     logging.info(f'Exercising +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                #     self.account.add_shares([
-                #         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
-                #     ])
-                #     self.exercise_profit += (closing_price - option.strike) * 100
-                #     # price = round(closing_price - option.strike, 2)
-                # elif not option.is_call and option.is_long and option.strike > closing_price:
-                #     logging.info(f'Exercising -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                #     self.account.add_shares([
-                #         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
-                #     ])
-                #     self.exercise_profit += (option.strike - closing_price) * 100
-                # elif option.is_call and not option.is_long and option.strike < closing_price:
-                #     logging.info(f'Assigned -100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                #     self.account.add_shares([
-                #         Share(self.ticker, option.strike, execution_time, is_long=False) for share in range(100)
-                #     ])
-                #     self.exercise_profit += (option.strike - closing_price) * 100
-                # elif not option.is_call and not option.is_long and option.strike > closing_price:
-                #     logging.info(f'Assigned +100 shares of {self.ticker} @ ${option.strike} at {execution_time.isoformat()}')
-                #     self.account.add_shares([
-                #         Share(self.ticker, option.strike, execution_time, is_long=True) for share in range(100)
-                #     ])
-                #     self.exercise_profit += (closing_price - option.strike) * 100
-                    # price = round(option.strike - closing_price, 2)
                 closing_options.append(
                     Option(
                         id_=option.id,
@@ -830,12 +830,12 @@ class Trade:
 
     @property
     def net_profit(self) -> float:
-        profit = self.option_profit
+        profit = self.premium_profit
         profit += self.exercise_profit
         return round(profit, 2)
 
     @property
-    def option_profit(self) -> float:
+    def premium_profit(self) -> float:
         if not self.is_closed:
             raise ValueError('Cannot get profit of unclosed trade')
         profit = 0.0
@@ -845,7 +845,7 @@ class Trade:
         return round(profit, 2)
 
     @property
-    def option_profit_by_event(self) -> dict:
+    def premium_profit_by_event(self) -> dict:
         if not self.is_closed:
             raise ValueError('Cannot get profit of unclosed trade')
         options = []
@@ -867,7 +867,7 @@ class Trade:
     def return_on_collateral_by_event(self) -> dict:
         if not self.is_closed:
             raise ValueError('Cannot get RoC of unclosed trade')
-        event_profits = list(self.option_profit_by_event.values())
+        event_profits = list(self.premium_profit_by_event.values())
         event_rocs = {}
         for index, event in enumerate(self.trade_events):
             try:
