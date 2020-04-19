@@ -107,29 +107,30 @@ def get_open_options(options: List['Option']) -> List['Option']:
     return open_options
 
 
-def get_option_matches(options: List['Option']) -> tuple:
-    matched_options = {
-        'call': {},
-        'put': {},
-    }
-    unmatched_options = {
-        'call': {},
-        'put': {},
-    }
-    for option in options:
-        option_type = 'call' if option.is_call else 'put'
-        unmatched_options[option_type].setdefault(option.strike, []).append(option)
-        # if inventory[option_type].get(option.strike) is None:
-        #     inventory[option_type][option.strike] = []
-        for same_strike_option in filter(lambda op: op is not option, unmatched_options[option_type][option.strike]):
-            if option.is_long != same_strike_option.is_long:
-                unmatched_options[option_type][option.strike].remove(same_strike_option)
-                matched_options[option_type].setdefault(option.strike, []).extend([
-                    option,
-                    same_strike_option,
-                ])
-                break
-    return matched_options, unmatched_options
+# TODO: Broken. May not be needed
+# def get_option_matches(options: List['Option']) -> tuple:
+#     matched_options = {
+#         'call': {},
+#         'put': {},
+#     }
+#     unmatched_options = {
+#         'call': {},
+#         'put': {},
+#     }
+#     for option in options:
+#         option_type = 'call' if option.is_call else 'put'
+#         unmatched_options[option_type].setdefault(option.strike, []).append(option)
+#         # if inventory[option_type].get(option.strike) is None:
+#         #     inventory[option_type][option.strike] = []
+#         for same_strike_option in filter(lambda op: op is not option, unmatched_options[option_type][option.strike]):
+#             if option.is_long != same_strike_option.is_long:
+#                 unmatched_options[option_type][option.strike].remove(same_strike_option)
+#                 matched_options[option_type].setdefault(option.strike, []).extend([
+#                     option,
+#                     same_strike_option,
+#                 ])
+#                 break
+#     return matched_options, unmatched_options
 
 
 def sort_options(options: List['Option']) -> List['Option']:
@@ -138,37 +139,21 @@ def sort_options(options: List['Option']) -> List['Option']:
     return sorted_options
 
 
-# def parse_raw_data():
-#     # parse all raw data into ingestible json files
-#     for root, dirs, filenames in os.walk('raw_data'):
-#         for filename in filenames:
-#             if re.search(r'\.txt$', filename, re.IGNORECASE):
-#                 parse_robinhood_file(os.path.join(root, filename))
-#
-#
-# def process_trade_events_data():
-#     # process all json files in trade events folder
-#     for root, dirs, filenames in os.walk('trade_events_data'):
-#         for filename in filenames:
-#             if re.search(r'\.json$', filename, re.IGNORECASE):
-#                 with open(os.path.join(root, filename)) as data_file:
-#                     events_data = json.load(data_file)
-#                     for trade_event_data in events_data:
-#                         trade_event = TradeEvent(
-#                             **{
-#                                 convert_case(key, Case.CAMEL, Case.SNAKE): value
-#                                 for key, value in trade_event_data.items()
-#                             }
-#                         )
-#                         account.execute_trade_event(trade_event)
-
 class Cache:
     def __init__(self, filepath):
+        """
+        If filepath is provided, a file will be created to save the cache on program close.
+        If filepath is falsy (emptry string ideally), an in-memory cache will be created instead
+        :param filepath: string
+        """
         self.filepath = filepath
-        try:
-            with open(filepath, 'rb') as file:
-                self.cache = pickle.load(file)
-        except FileNotFoundError:
+        if filepath:
+            try:
+                with open(filepath, 'rb') as file:
+                    self.cache = pickle.load(file)
+            except (FileNotFoundError, pickle.UnpicklingError):
+                self.cache = {}
+        else:
             self.cache = {}
 
     def __enter__(self):
@@ -178,12 +163,14 @@ class Cache:
         self.save()
 
     def save(self):
-        with open(self.filepath, 'wb') as file:
-            pickle.dump(self.cache, file)
+        if self.filepath:
+            with open(self.filepath, 'wb') as file:
+                pickle.dump(self.cache, file)
 
     def get(self, item):
         obj = self.cache.get(item)
         if obj is not None:
+            logging.debug(f'item {item} found in {self.__class__.__name__}')
             return obj
         self.cache[item] = self._get(item)
         return self.cache[item]
@@ -197,6 +184,10 @@ class InstrumentCache(Cache):
         super().__init__('.instrument_cache')
 
     def _get(self, item):
+        """
+        :param item: instrument url
+        :return: instrument payload returned from robinhood
+        """
         return robin_stocks.helper.request_get(item)
 
 
@@ -205,6 +196,10 @@ class ClosingPriceCache(Cache):
         super().__init__('.closing_price_cache')
 
     def _get(self, item):
+        """
+        :param item: tuple(ticker: str, expiration_date: date)
+        :return: float value of ticker closing price on expiration date
+        """
         ticker, expiration_date = item
         next_day = expiration_date + timedelta(days=1)
         logging.info(f'Fetching closing price of {ticker} on {expiration_date}...')
@@ -212,6 +207,18 @@ class ClosingPriceCache(Cache):
         if hasattr(closing_price, 'array'):
             closing_price = closing_price.array[0]
         return closing_price
+
+
+class TickerEventCache(Cache):
+    def __init__(self):
+        super().__init__('')
+
+    def _get(self, item):
+        """
+        :param item: ticker: str
+        :return: list of robinhood events related to ticker
+        """
+        return robin_stocks.get_events(item)
 
 
 class Account:
@@ -241,9 +248,10 @@ class Account:
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
             'total_option_premium_profit': self.get_total_option_premium_profit(closed_trades),
-            'total_option_net_profit': self.get_total_option_net_profit(closed_trades),
-            'average_option_net_profit': self.get_average_option_net_profit(closed_trades),
-            'option_net_profit_by_ticker': self.get_option_net_profit_by_ticker(closed_trades),
+            'option_premium_profit_by_ticker': self.get_option_premium_profit_by_ticker(closed_trades),
+            'total_trade_profit': self.get_total_trade_profit(closed_trades),
+            'average_trade_profit': self.get_average_trade_profit(closed_trades),
+            'trade_profit_by_ticker': self.get_trade_profit_by_ticker(closed_trades),
             'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
@@ -260,22 +268,29 @@ class Account:
             trades = self.trades.values()
         return round(sum(trade.premium_profit for trade in trades), 2)
 
-    def get_total_option_net_profit(self, trades=None) -> float:
+    def get_option_premium_profit_by_ticker(self, trades=None) -> dict:
+        profits_by_ticker = {}
+        for trade in trades:
+            profits_by_ticker.setdefault(trade.ticker, 0)
+            profits_by_ticker[trade.ticker] += trade.premium_profit
+        return profits_by_ticker
+
+    def get_total_trade_profit(self, trades=None) -> float:
         if trades is None:
             trades = self.trades.values()
         return round(sum(trade.net_profit for trade in trades), 2)
 
-    def get_option_net_profit_by_ticker(self, trades=None) -> dict:
+    def get_trade_profit_by_ticker(self, trades=None) -> dict:
         profits_by_ticker = {}
         for trade in trades:
             profits_by_ticker.setdefault(trade.ticker, 0)
             profits_by_ticker[trade.ticker] += trade.net_profit
         return profits_by_ticker
 
-    def get_average_option_net_profit(self, trades=None) -> float:
+    def get_average_trade_profit(self, trades=None) -> float:
         if trades is None:
             trades = self.trades.values()
-        return round(self.get_total_option_net_profit(trades) / len(trades), 2)
+        return round(self.get_total_trade_profit(trades) / len(trades), 2)
 
     def get_win_percent(self, trades=None) -> float:
         if trades is None:
@@ -735,7 +750,7 @@ class Trade:
         open_options = get_open_options(self.options)
         if open_options:
             if self.event_data is None:
-                self.event_data = robin_stocks.get_events(self.ticker)
+                self.event_data = ticker_event_cache.get(self.ticker)
 
             option_ids = [option.id for option in open_options]
             for event in self.event_data:
@@ -898,28 +913,6 @@ class Trade:
             return True
         return False
 
-    # @property
-    # def return_on_collateral_percent(self) -> float:
-    #     if not self.is_closed:
-    #         raise ValueError('Cannot get profit of unclosed trade')
-    #     collaterals = []
-    #     # previous_event = None
-    #     for index, event in enumerate(self.trade_events):
-    #         # if previous_event is not None:
-    #         #     collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
-    #         # if event.strategy.collateral != 0.0:
-    #         #     previous_event = event
-    #         # try:
-    #         #     close_time = self.trade_events[index + 1].execution_time
-    #         # except IndexError:
-    #         #     break
-    #         if event.strategy.collateral > 0.0:
-    #             # TODO: this really should be realized_profit/previous_collateral
-    #             collaterals.append(event.strategy.collateral * ((event.end_time - event.execution_time) / self.duration))
-    #     # collaterals.append(previous_event.strategy.collateral * ((event.execution_time - previous_event.strategy.trade_event.execution_time) / self.duration))
-    #     average_collateral = sum(collaterals) / len(collaterals)
-    #     return round((self.total_profit / average_collateral) * 100, 2)
-
     @property
     def duration(self) -> timedelta:
         if not self.is_closed:
@@ -951,19 +944,6 @@ class Trade:
             if event.strategy.name == 'Close Position':
                 event.end_time = event.execution_time
             previous_event = event
-
-            # self.strategies.append(Strategy(get_open_options(options), event.time))
-        # options = []
-        # # self.strategies = []
-        # # previous_open_options = []
-        # for event in self.trade_events:
-        #     options.extend(event.options)
-        #     matched_options, unmatched_options = get_option_matches(options)
-        #     open_options = list(itertools.chain(*([option for option in strike.values()] for strike in unmatched_options.values()))) #TODO: fix this garbage
-        #     event.strategy = Strategy(event, open_options)
-        #
-        #     previous_open_options = open_options
-            # self.strategies.append(Strategy(get_open_options(options), event.time))
 
 
 class TradeEvent:
@@ -1005,8 +985,9 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     with InstrumentCache() as instrument_cache:
         with ClosingPriceCache() as closing_price_cache:
-            account = Account()
-            get_robinhood_data()
-            # parse_raw_data()
-            # process_trade_events_data()
-            account.report()
+            with TickerEventCache() as ticker_event_cache:
+                account = Account()
+                get_robinhood_data()
+                # parse_raw_data()
+                # process_trade_events_data()
+                account.report()
