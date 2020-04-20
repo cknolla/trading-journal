@@ -250,6 +250,9 @@ class Account:
             'total_realized_profit': self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit(),
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
+            'closed_shares': {
+                ticker: len(shares) for ticker, shares in self.closed_shares.items()
+            },
             'open_shares': {
                 ticker: len(shares) * (1 if shares and shares[0].is_long else -1) for ticker, shares in self.open_shares.items()
             },
