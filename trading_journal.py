@@ -70,7 +70,7 @@ def get_robinhood_data():
         execution_time = utc_to_eastern(order['last_transaction_at'])
         quantity = int(float(order['quantity']))
         is_long = True if order['side'] == 'buy' else False
-        logging.info(f'Adding {"+" if is_long else "-"}{quantity} shares of {ticker}')
+        # logging.info(f'Adding {"+" if is_long else "-"}{quantity} shares of {ticker}')
         if order['state'] == 'filled' and order['cancel'] is None:
             account.add_shares([
                 Share(
@@ -239,6 +239,7 @@ class Account:
 
     def report(self):
         logging.info(f'Building output report...')
+        self.resolve_referral_shares()
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
         strategy_count_by_name = {}
@@ -330,7 +331,7 @@ class Account:
     def get_share_profit_by_ticker(self) -> dict:
         results = {}
         for ticker, shares in self.closed_shares.items():
-            results[ticker] = sum(share.profit for share in shares)
+            results[ticker] = round(sum(share.profit for share in shares), 2)
         return results
 
     def get_total_share_profit(self) -> float:
@@ -344,7 +345,7 @@ class Account:
         # is_long = shares[0].is_long
         self.open_shares.setdefault(ticker, [])
         self.closed_shares.setdefault(ticker, [])
-        logging.debug(f'Adding {"+" if shares[0].is_long else "-"}{len(shares)} shares of {ticker} @ ${shares[0].open_price}')
+        logging.info(f'Adding {"+" if shares[0].is_long else "-"}{len(shares)} shares of {ticker}')
         index = 0
         if self.open_shares[ticker]:
             if self.open_shares[ticker][0].is_long != shares[0].is_long:
@@ -360,6 +361,20 @@ class Account:
         self.open_shares[ticker].extend(shares[index:])
         # FIFO sort
         self.open_shares[ticker].sort(key=lambda share: share.open_time)
+
+    def resolve_referral_shares(self):
+        referrals = robin_stocks.get_referrals()
+        for referral in referrals:
+            if referral['direction'] == 'to' and referral['state'] == 'received':
+                for stock in referral['reward']['stocks']:
+                    event_time = utc_to_eastern(stock['received_at'])
+                    open_price = round(float(stock['cost_basis']), 2)
+                    quantity = int(stock['quantity'])
+                    ticker = stock['symbol']
+                    logging.info(f'Adding {quantity} free share{"s" if quantity > 1 else ""} of {ticker} received as reward')
+                    self.add_shares([
+                        Share(ticker, open_price, event_time, True) for share in range(quantity)
+                    ])
 
 
 class Option:
