@@ -229,6 +229,13 @@ class Account:
         self.trades = {}  # stored as (ticker, expiration_date): trade
         self.open_shares = {}  # stored as ticker: [Share]
         self.closed_shares = {}
+        self.total_deposited = 0.0
+        self.total_withdrawn = 0.0
+        self.portfolio_cash = 0.0
+
+    @property
+    def calculated_cash(self) -> float:
+        return round(self.total_deposited - self.total_withdrawn, 2)
 
     def execute_trade_event(self, trade_event: 'TradeEvent'):
         trade = self.trades.get((trade_event.ticker, trade_event.expiration_date))
@@ -240,6 +247,7 @@ class Account:
     def report(self):
         logging.info(f'Building output report...')
         self.resolve_referral_shares()
+        self.get_cash()
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
         strategy_count_by_name = {}
@@ -255,8 +263,20 @@ class Account:
             # sort strategy dictionary by popularity (highest value descending)
             strategy_count_by_name = {key: strategy_count_by_name[key] for key in sorted(strategy_count_by_name, key=strategy_count_by_name.get, reverse=True)}
         open_trades = [trade for trade in all_trades if trade not in closed_trades]
+        max_profit_of_open_trades = round(sum([trade.strategies[-1].max_profit for trade in open_trades]), 2) # all premium collected thus far on the trade
+        open_collateral = round(sum([trade.strategies[-1].collateral for trade in open_trades]), 2) # collateral required for last strategy in open trade
+        total_realized_profit = self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit()
+        # RH is quite generous... your portfolio and withrawable cash assumes max profit on all open trades
+        calculated_cash_after_profit = round(self.calculated_cash + total_realized_profit + max_profit_of_open_trades - open_collateral, 2)
+        cash_slippage = round(self.portfolio_cash - calculated_cash_after_profit, 2)
         stats = {
-            'total_realized_profit': self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit(),
+            'total_realized_profit': total_realized_profit,
+            'total_cash_deposited': self.total_deposited,
+            'total_cash_withdrawn': self.total_withdrawn,
+            'collateral_held': open_collateral,
+            'calculated_cash_after_profit': calculated_cash_after_profit,
+            'reported_portfolio_cash': self.portfolio_cash,
+            'cash_slippage': cash_slippage,
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
             'closed_shares': {
@@ -363,6 +383,7 @@ class Account:
         self.open_shares[ticker].sort(key=lambda share: share.open_time)
 
     def resolve_referral_shares(self):
+        logging.info('Accounting for referral bonuses...')
         referrals = robin_stocks.get_referrals()
         for referral in referrals:
             if referral['direction'] == 'to' and referral['state'] == 'received':
@@ -375,6 +396,25 @@ class Account:
                     self.add_shares([
                         Share(ticker, 0.0, event_time, True) for share in range(quantity)
                     ])
+
+    def get_cash(self):
+        logging.info('Getting actual cash value...')
+        profile = robin_stocks.load_account_profile()
+        self.portfolio_cash = round(float(profile['portfolio_cash']), 2)
+        logging.info('Getting cash deposited/withdrawn...')
+        transfers = robin_stocks.get_bank_transfers()
+        for transfer in transfers:
+            if transfer['cancel'] is not None or transfer['state'] != 'completed':
+                continue
+            amount = round(float(transfer['amount']), 2)
+            fees = round(float(transfer['fees']), 2)
+            event_time = utc_to_eastern(transfer['created_at'])
+            if transfer['direction'] == 'deposit':
+                logging.info(f'Adding deposit of ${amount} with a fee of {fees} at {event_time.isoformat()}')
+                self.total_deposited += round(amount - fees, 2)
+            else:
+                logging.info(f'Adding withdrawl of ${amount} with a fee of {fees} at {event_time.isoformat()}')
+                self.total_withdrawn += round(amount + fees, 2)
 
 
 class Option:
@@ -887,8 +927,6 @@ class Trade:
 
     @property
     def premium_profit(self) -> float:
-        if not self.is_closed:
-            raise ValueError('Cannot get profit of unclosed trade')
         profit = 0.0
         for option in self.options:
             profit += -option.price if option.is_long else option.price
@@ -897,8 +935,6 @@ class Trade:
 
     @property
     def premium_profit_by_event(self) -> dict:
-        if not self.is_closed:
-            raise ValueError('Cannot get profit of unclosed trade')
         options = []
         strategy_profits = {}
         for event in self.trade_events:
