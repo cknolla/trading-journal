@@ -241,10 +241,18 @@ class Account:
         logging.info(f'Building output report...')
         all_trades = list(self.trades.values())
         all_trades.sort(key=lambda trade: trade.expiration_date, reverse=True)
+        strategy_count_by_name = {}
         for trade in all_trades:
             trade.resolve_events()
             trade.resolve_expired_options()
         closed_trades = list(filter(lambda trade: trade.is_closed, all_trades))
+        for trade in closed_trades:
+            for event in trade.trade_events:
+                if event.duration > timedelta(minutes=5) and event.strategy.name != 'Close Position':
+                    strategy_count_by_name.setdefault(event.strategy.name, 0)
+                    strategy_count_by_name[event.strategy.name] += 1
+            # sort strategy dictionary by popularity (highest value descending)
+            strategy_count_by_name = {key: strategy_count_by_name[key] for key in sorted(strategy_count_by_name, key=strategy_count_by_name.get, reverse=True)}
         open_trades = [trade for trade in all_trades if trade not in closed_trades]
         stats = {
             'total_realized_profit': self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit(),
@@ -265,6 +273,7 @@ class Account:
             'trade_count_by_ticker': self.get_trade_count_by_ticker(all_trades),
             'win_percent': self.get_win_percent(closed_trades),
             'average_trade_duration': str(self.get_average_trade_duration(closed_trades)),
+            'strategy_count_by_name': strategy_count_by_name,
             'closed_trades': [trade.report() for trade in closed_trades],
             'open_trades': [trade.report() for trade in open_trades],
         }
