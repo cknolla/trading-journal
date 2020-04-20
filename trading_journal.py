@@ -774,6 +774,7 @@ class Trade:
                     continue
                 option = next((option for option in open_options if option.id == event['option']), None)
                 event_time = utc_to_eastern(event['created_at'])
+                underlying_price = float(event['underlying_price'])
                 for equity_component in event['equity_components']:
                     price = float(equity_component['price'])
                     is_long = True if equity_component['side'] == 'buy' else False
@@ -781,7 +782,11 @@ class Trade:
                     self.account.add_shares([
                         Share(self.ticker, open_price=price, open_time=event_time, is_long=is_long) for share in range(quantity)
                     ])
-                    self.exercise_profit += price * quantity * (-1 if is_long else 1)
+                    if is_long:
+                        self.exercise_profit += round((underlying_price - price) * quantity, 2)
+                    else:
+                        self.exercise_profit += round((price - underlying_price) * quantity, 2)
+                    # self.exercise_profit += price * quantity * (-1 if is_long else 1)
                 self.add_event(
                     TradeEvent(
                         ticker=self.ticker,
