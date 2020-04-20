@@ -368,12 +368,12 @@ class Account:
             if referral['direction'] == 'to' and referral['state'] == 'received':
                 for stock in referral['reward']['stocks']:
                     event_time = utc_to_eastern(stock['received_at'])
-                    open_price = round(float(stock['cost_basis']), 2)
+                    # open_price = round(float(stock['cost_basis']), 2)  # since the stock is received for free, the actual price is 0.0, but the cost basis is available if needed
                     quantity = int(stock['quantity'])
                     ticker = stock['symbol']
                     logging.info(f'Adding {quantity} free share{"s" if quantity > 1 else ""} of {ticker} received as reward')
                     self.add_shares([
-                        Share(ticker, open_price, event_time, True) for share in range(quantity)
+                        Share(ticker, 0.0, event_time, True) for share in range(quantity)
                     ])
 
 
