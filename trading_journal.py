@@ -232,6 +232,11 @@ class Account:
         self.total_deposited = 0.0
         self.total_withdrawn = 0.0
         self.portfolio_cash = 0.0
+        self.buying_power = 0.0
+        self.cash = 0.0
+        self.unsettled_debit = 0.0
+        self.unsettled_funds = 0.0
+        self.cash_held_for_collateral = 0.0
 
     @property
     def calculated_cash(self) -> float:
@@ -266,17 +271,20 @@ class Account:
         max_profit_of_open_trades = round(sum([trade.strategies[-1].max_profit for trade in open_trades]), 2) # all premium collected thus far on the trade
         open_collateral = round(sum([trade.strategies[-1].collateral for trade in open_trades]), 2) # collateral required for last strategy in open trade
         total_realized_profit = self.get_total_option_premium_profit(closed_trades) + self.get_total_share_profit()
-        # RH is quite generous... your portfolio and withrawable cash assumes max profit on all open trades
         calculated_cash_after_profit = round(self.calculated_cash + total_realized_profit + max_profit_of_open_trades - open_collateral, 2)
-        cash_slippage = round(self.portfolio_cash - calculated_cash_after_profit, 2)
+        # cash_slippage = round(self.portfolio_cash - calculated_cash_after_profit, 2)
         stats = {
             'total_realized_profit': total_realized_profit,
             'total_cash_deposited': self.total_deposited,
             'total_cash_withdrawn': self.total_withdrawn,
-            'collateral_held': open_collateral,
+            'calculated_collateral_held': open_collateral,
             'calculated_cash_after_profit': calculated_cash_after_profit,
             'reported_portfolio_cash': self.portfolio_cash,
-            'cash_slippage': cash_slippage,
+            'reported_cash_held_for_collateral': self.cash_held_for_collateral,
+            'reported_buying_power': self.buying_power,
+            'reported_cash': self.cash,
+            'unsettled_funds': self.unsettled_funds,
+            'unsettled_debit': self.unsettled_debit,
             'total_share_profit': self.get_total_share_profit(),
             'share_profit_by_ticker': self.get_share_profit_by_ticker(),
             'closed_shares': {
@@ -401,6 +409,11 @@ class Account:
         logging.info('Getting actual cash value...')
         profile = robin_stocks.load_account_profile()
         self.portfolio_cash = round(float(profile['portfolio_cash']), 2)
+        self.buying_power = round(float(profile['buying_power']), 2)
+        self.cash = round(float(profile['cash']), 2)
+        self.unsettled_funds = round(float(profile['unsettled_funds']), 2)
+        self.unsettled_debit = round(float(profile['unsettled_debit']), 2)
+        self.cash_held_for_collateral = round(float(profile['cash_held_for_options_collateral']), 2)
         logging.info('Getting cash deposited/withdrawn...')
         transfers = robin_stocks.get_bank_transfers()
         for transfer in transfers:
